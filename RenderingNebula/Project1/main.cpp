@@ -262,39 +262,49 @@ float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 	return  (1 / (4*M_PI)) * (1 - g * g) / (denom * sqrt(denom));
 }
 
-vec3 emissionColor(float temperature) // riiguarda
+vec3 nebulaColor(float nii_ha, float sii_ha, float density)
 {
-	float t = (temperature - 6000.0f) / 9000.f; // normalizza a 0-1 (normalizzo a 6000-15000 ma in realtà sovrebbe essere 2000)
-	t = std::clamp(t, 0.1f, 1.0f);
+	// nii_ha e sii_ha sono già in [0,1] dalle griglie normalizzate
 
-	vec3 cold{ 0.4f, 0.0f, 0.0f };  // rosso scuro  — bassa T (NII/SII)
-	vec3 mid { 0.9f, 0.1f, 0.0f };  // rosso         — media T (Hα)
-	vec3 hot { 0.1f, 0.8f, 1.0f };  // azzurro/verde — alta T  (OIII)
+	// colori base fisicamente motivati
+	vec3 ionized  { 0.05f, 0.6f,  1.0f  }; // blu-ciano   — gas ionizzato (basso NII/Ha)
+	vec3 neutral  { 0.9f,  0.15f, 0.0f  }; // rosso-arancio — gas neutro   (alto NII/Ha)
+	vec3 shock    { 1.0f,  0.4f,  0.0f  }; // arancio caldo  — shock       (alto SII/Ha)
+	vec3 core     { 1.0f,  0.95f, 0.8f  }; // bianco caldo   — centro denso
 
-	// assegno colori a temperature con interpolazione lineare tra tre colori
-	if (t < 0.5f) {
-		float s = t / 0.5f;
-		return vec3{ cold.x * (1 - s) + mid.x * s, cold.y * (1 - s) + mid.y * s, cold.z * (1 - s) + mid.z * s };
-	} 
-	else {
-		float s = (t - 0.5f) / 0.5f;
-		return  vec3{ mid.x*(1-s)+hot.x*s, mid.y*(1-s)+hot.y*s, mid.z*(1-s)+hot.z*s };
-	}
+	// blend NII: 0=ionized, 1=neutral
+	float t_nii = std::clamp(nii_ha * 2.0f, 0.f, 1.f); // moltiplica x2: i valori bassi sono i più interessanti
+	vec3 baseColor{
+		ionized.x * (1-t_nii) + neutral.x * t_nii,
+		ionized.y * (1-t_nii) + neutral.y * t_nii,
+		ionized.z * (1-t_nii) + neutral.z * t_nii
+	};
+
+	// blend SII sopra: aggiunge componente shock
+	float t_sii = std::clamp(sii_ha * 1.5f, 0.f, 1.f);
+	baseColor.x = baseColor.x * (1-t_sii) + shock.x * t_sii;
+	baseColor.y = baseColor.y * (1-t_sii) + shock.y * t_sii;
+	baseColor.z = baseColor.z * (1-t_sii) + shock.z * t_sii;
+
+	// centro denso tende al bianco (come nelle nebulose reali)
+	float t_core = std::clamp((density - 0.6f) / 0.4f, 0.f, 1.f);
+	baseColor.x = baseColor.x * (1-t_core) + core.x * t_core;
+	baseColor.y = baseColor.y * (1-t_core) + core.y * t_core;
+	baseColor.z = baseColor.z * (1-t_core) + core.z * t_core;
+
+	return baseColor;
 }
-
-
-
 
 // L è la radianza raccolta (luminanza del volume, cioè il colore finale)
 // T è la trasmittanza finale (la transparency)
-void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, float& T, const Grid& grid, const Grid& tempGrid)
+void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, float& T, const Grid& grid,  const Grid& niiGrid, const Grid& siiGrid)
 {
 	// std::default_random_engine generator(omp_get_thread_num()); poichè scattering quasi nullo non mi serve la roulette russa
 	// std::uniform_real_distribution<float> distribution(0.0, 1.0);
 
 	float stepSize = 0.05;
-	float sigma_a = 0.3; // assorbimento: gas quasi trasparente
-	float sigma_s = 0.1; // scattering: praticamente trascurabile
+	float sigma_a = 0.08; // assorbimento: gas quasi trasparente
+	float sigma_s = 0.02; // scattering: praticamente trascurabile
 	float sigma_t = sigma_a + sigma_s;
 	float g = 0;
 	// uint8_t d = 2; // "probabilità" per la Russian Roulette
@@ -315,12 +325,13 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 		float t = tMin + stride * (n + 0.5); // 0.5 — campiona esattamente al centro di ogni passo:
 		vec3 samplePos = ray(t); // l'operatore che avevo creato
 
-		float density = lookup(grid, samplePos);
-		float temperature = lookup(tempGrid, samplePos);
+		float density    = lookup(grid,    samplePos);
+		float nii_ha     = lookup(niiGrid, samplePos);
+		float sii_ha     = lookup(siiGrid, samplePos);
 
-		float emissivity = 0.2f;
-		vec3 emColor = emissionColor(temperature);
+		float emissivity = 0.5f;
 		
+		vec3 emColor = nebulaColor(nii_ha, sii_ha, density);
 
 		float Tsample = exp(-density * stride * sigma_t); // attenuazione del sample
 		Tvol *= Tsample; // aggiorna trasparenza
@@ -379,23 +390,30 @@ void render()
 	Grid grid;
 	grid.densityData = std::make_unique<float[]>(grid.baseResolution * grid.baseResolution * grid.baseResolution);
 	{
-		std::ifstream ifs("density1.bin", std::ios::binary);
+		std::ifstream ifs("density.bin", std::ios::binary);
 		ifs.read((char*)grid.densityData.get(), sizeof(float) * 128 * 128 * 128);
 	}
 
-	// Carica temperature.bin
-	Grid tempGrid;
-	tempGrid.densityData = std::make_unique<float[]>(tempGrid.baseResolution * tempGrid.baseResolution * tempGrid.baseResolution);
+	Grid NiiGrid;
+	NiiGrid.densityData = std::make_unique<float[]>(NiiGrid.baseResolution * NiiGrid.baseResolution * NiiGrid.baseResolution);
 	{
-		std::ifstream ifs("temperature1.bin", std::ios::binary);
-		ifs.read((char*)tempGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
+		std::ifstream ifs("nii_ha.bin", std::ios::binary);
+		ifs.read((char*)NiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
 	}
+
+	Grid SiiGrid;
+	SiiGrid.densityData = std::make_unique<float[]>(SiiGrid.baseResolution * SiiGrid.baseResolution * SiiGrid.baseResolution);
+	{
+		std::ifstream ifs("sii_ha.bin", std::ios::binary);
+		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
+	}
+
 
 	// DEBUG — stampa alcuni valori delle griglie
 	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
 	for (int i = 0; i < 128*128*128; i++) {
 		float d = grid.densityData[i];
-		float t = tempGrid.densityData[i];
+		float t = NiiGrid.densityData[i];
 		if (d > maxD) maxD = d;
 		if (d > 0 && d < minD) minD = d;
 		if (t > maxT) maxT = t;
@@ -435,7 +453,7 @@ void render()
 
 			float tmin, tmax;
 			if (raybox(ray, grid.bounds, tmin, tmax)) {
-				integrate(ray, tmin, tmax, L, transmittance, grid, tempGrid);
+				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid );
 			}
 
 			vec3 pixelColor = background_color * transmittance + L;
