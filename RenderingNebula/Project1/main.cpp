@@ -287,7 +287,7 @@ vec3 nebulaColor(float nii_ha, float sii_ha, float density)
 	baseColor.z = baseColor.z * (1-t_sii) + shock.z * t_sii;
 
 	// centro denso tende al bianco (come nelle nebulose reali)
-	float t_core = std::clamp((density - 0.6f) / 0.4f, 0.f, 1.f);
+	float t_core = std::clamp((density - 0.3f) / 0.4f, 0.f, 1.f);
 	baseColor.x = baseColor.x * (1-t_core) + core.x * t_core;
 	baseColor.y = baseColor.y * (1-t_core) + core.y * t_core;
 	baseColor.z = baseColor.z * (1-t_core) + core.z * t_core;
@@ -302,7 +302,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 	// std::default_random_engine generator(omp_get_thread_num()); poichè scattering quasi nullo non mi serve la roulette russa
 	// std::uniform_real_distribution<float> distribution(0.0, 1.0);
 
-	float stepSize = 0.05;
+	float stepSize = 0.02;
 	float sigma_a = 0.08; // assorbimento: gas quasi trasparente
 	float sigma_s = 0.02; // scattering: praticamente trascurabile
 	float sigma_t = sigma_a + sigma_s;
@@ -329,7 +329,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 		float nii_ha     = lookup(niiGrid, samplePos);
 		float sii_ha     = lookup(siiGrid, samplePos);
 
-		float emissivity = 0.5f;
+		float emissivity = 2.f;
 		
 		vec3 emColor = nebulaColor(nii_ha, sii_ha, density);
 
@@ -379,6 +379,12 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 	T = Tvol;
 }
 
+vec3 reinhard(vec3 c)
+{
+	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+	float scale = 1.0f / (1.0f + lum);
+	return vec3{ c.x * scale, c.y * scale, c.z * scale };
+}
 
 // matrice della camera come variabile globale
 Matrix cameraToWorld{ 1,0,0,0, 0,1,0,0, 0,0,-1,0, 0,0,80,1 };
@@ -426,7 +432,7 @@ void render()
 	size_t width = 640;
 	size_t height = 480;
 
-	std::unique_ptr<char[]> imgbuf = std::make_unique<char[]>(width * height * 3);
+	std::unique_ptr<unsigned char[]> imgbuf = std::make_unique<unsigned char[]>(width * height * 3);
 
 	vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // Calcolo origine del raggio
 
@@ -459,9 +465,11 @@ void render()
 			vec3 pixelColor = background_color * transmittance + L;
 
 			size_t pixelOffset = (j * width + i) * 3;
-			imgbuf[pixelOffset + 0] = static_cast<char>(std::clamp(pixelColor.x, 0.f, 1.f) * 255);
-			imgbuf[pixelOffset + 1] = static_cast<char>(std::clamp(pixelColor.y, 0.f, 1.f) * 255);
-			imgbuf[pixelOffset + 2] = static_cast<char>(std::clamp(pixelColor.z, 0.f, 1.f) * 255);
+			
+			vec3 mapped = reinhard(pixelColor);
+			imgbuf[pixelOffset + 0] = static_cast<unsigned char>(std::clamp(mapped.x, 0.f, 1.f) * 255);
+			imgbuf[pixelOffset + 1] = static_cast<unsigned char>(std::clamp(mapped.y, 0.f, 1.f) * 255);
+			imgbuf[pixelOffset + 2] = static_cast<unsigned char>(std::clamp(mapped.z, 0.f, 1.f) * 255);
 		}
 
 		#pragma omp critical
