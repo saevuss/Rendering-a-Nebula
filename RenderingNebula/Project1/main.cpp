@@ -262,42 +262,105 @@ float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 	return  (1 / (4*M_PI)) * (1 - g * g) / (denom * sqrt(denom));
 }
 
-vec3 nebulaColor(float nii_ha, float sii_ha, float density)
+vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float vel)
 {
-	// nii_ha e sii_ha sono già in [0,1] dalle griglie normalizzate
+	// Tutti i valori sono in [0,1] dopo log-stretch.
+	//
+	// FISICA (dal paper Martin et al. 2021, Crab Nebula con SITELLE):
+	// - La ionizzazione è da shock del pulsar wind, NON da fotoionizzazione UV.
+	// - NII/Ha traccia lo stato di ionizzazione: basso = gas più ionizzato
+	//   (direttamente esposto al vento della pulsar), alto = ejecta più freddi
+	//   e densi nelle shell esterne.
+	// - SII/Ha traccia le regioni di shock: alto dove il fronte di espansione
+	//   comprime il gas termico contro la nebulosa di sincrotrone.
+	// - SII6716/SII6731 (sii_sii) è diagnostico della densità elettronica:
+	//   rapporto alto (~1.4) = gas rarefatto (~100 cm^-3),
+	//   rapporto basso (~0.4) = gas denso (~10000 cm^-3).
+	//   Nel bin normalizzato: valore alto = denso, valore basso = rarefatto.
+	//   (la normalizzazione inverte: il minimo fisico 0.4 diventa 0 nel bin)
 
-	// colori base fisicamente motivati
-	vec3 ionized  { 0.05f, 0.6f,  1.0f  }; // blu-ciano   — gas ionizzato (basso NII/Ha)
-	vec3 neutral  { 0.9f,  0.15f, 0.0f  }; // rosso-arancio — gas neutro   (alto NII/Ha)
-	vec3 shock    { 1.0f,  0.4f,  0.0f  }; // arancio caldo  — shock       (alto SII/Ha)
-	vec3 core     { 1.0f,  0.95f, 0.8f  }; // bianco caldo   — centro denso
+	// Colori ancorati alla fisica della Crab:
+	// gas ionizzato dal pulsar wind → tende al blu-violaceo (come nelle
+	// immagini ottiche HST della Crab dove la PWN è blu per sincrotrone)
+	vec3 pwn      { 0.2f,  0.4f,  1.0f  }; // blu — gas ionizzato dal pulsar wind (basso NII/Ha)
 
-	// blend NII: 0=ionized, 1=neutral
-	float t_nii = std::clamp(nii_ha * 2.0f, 0.f, 1.f); // moltiplica x2: i valori bassi sono i più interessanti
+	// ejecta termici nella shell → rosso-arancio (dominati da NII, SII)
+	vec3 ejecta   { 0.85f, 0.15f, 0.05f }; // rosso — ejecta densi, basso grado ionizzazione
+
+	// zona di shock al fronte di espansione → arancio caldo (alto SII/Ha)
+	// fisicamente: interfaccia tra nebulosa sincrotrone e gas termico
+	// è dove Rayleigh-Taylor instabilities creano i filamenti (Hester 1996, citato nel paper)
+	vec3 shock    { 1.0f,  0.45f, 0.0f  }; // arancio — fronte di shock
+
+	// gas denso (basso sii_sii) → più opaco, tende al rosso scuro
+	// gas rarefatto (alto sii_sii) → più trasparente, tende al blu
+	// NON usiamo "bianco caldo" perché non c'è una stella centrale calda —
+	// il centro della Crab è dominato dalla PWN non da emissione termica densa.
+	vec3 dense    { 0.7f,  0.1f,  0.05f }; // rosso scuro — filamenti ad alta densità elettronica
+
+	// --- Blend 1: NII/Ha → ionizzazione ---
+	// basso NII/Ha (vicino al pulsar wind) = pwn (blu)
+	// alto NII/Ha (ejecta esterni) = ejecta (rosso)
+	float t_nii = std::clamp(nii_ha * 1.5f, 0.f, 1.f);
 	vec3 baseColor{
-		ionized.x * (1-t_nii) + neutral.x * t_nii,
-		ionized.y * (1-t_nii) + neutral.y * t_nii,
-		ionized.z * (1-t_nii) + neutral.z * t_nii
+		pwn.x * (1.f - t_nii) + ejecta.x * t_nii,
+		pwn.y * (1.f - t_nii) + ejecta.y * t_nii,
+		pwn.z * (1.f - t_nii) + ejecta.z * t_nii
 	};
 
-	// blend SII sopra: aggiunge componente shock
+	// --- Blend 2: SII/Ha → shock ---
+	// alto SII/Ha = zona di shock al fronte di espansione
 	float t_sii = std::clamp(sii_ha * 1.5f, 0.f, 1.f);
-	baseColor.x = baseColor.x * (1-t_sii) + shock.x * t_sii;
-	baseColor.y = baseColor.y * (1-t_sii) + shock.y * t_sii;
-	baseColor.z = baseColor.z * (1-t_sii) + shock.z * t_sii;
+	baseColor.x = baseColor.x * (1.f - t_sii) + shock.x * t_sii;
+	baseColor.y = baseColor.y * (1.f - t_sii) + shock.y * t_sii;
+	baseColor.z = baseColor.z * (1.f - t_sii) + shock.z * t_sii;
 
-	// centro denso tende al bianco (come nelle nebulose reali)
-	float t_core = std::clamp((density - 0.3f) / 0.4f, 0.f, 1.f);
-	baseColor.x = baseColor.x * (1-t_core) + core.x * t_core;
-	baseColor.y = baseColor.y * (1-t_core) + core.y * t_core;
-	baseColor.z = baseColor.z * (1-t_core) + core.z * t_core;
+	// --- Blend 3: SII6716/SII6731 → densità elettronica ---
+	// sii_sii basso nel bin = rapporto fisico basso = alta densità elettronica
+	// usiamo (1 - sii_sii) per avere t_dense alto dove il gas è denso
+	float t_dense = 0.f;
+	if (density > 0.f && sii_sii > 0.05f)  // soglia: esclude voxel senza dati reali
+		t_dense = std::clamp((1.f - sii_sii) * 1.5f, 0.f, 1.f);
+	baseColor.x = baseColor.x * (1.f - t_dense) + dense.x * t_dense;
+	baseColor.y = baseColor.y * (1.f - t_dense) + dense.y * t_dense;
+	baseColor.z = baseColor.z * (1.f - t_dense) + dense.z * t_dense;
+
+	// --- Blend 4: velocità radiale → Doppler shift del colore ---
+	//
+	// FISICA: la nebula si espande a ±1500 km/s. Le righe di emissione
+	// delle zone che si allontanano da noi (redshift) sono spostate
+	// verso il rosso; quelle che si avvicinano (blueshift) verso il blu.
+	// Questo è esattamente il meccanismo usato nel paper per ricostruire
+	// la struttura 3D: ogni filamento ha una Z ricavata dalla sua velocità.
+	//
+	// Nel bin: 0.0 = voxel vuoto (nessun dato)
+	//          ~0.46 = gas fermo (vel ≈ 0 km/s)
+	//          > 0.46 = redshift (si allontana)
+	//          < 0.46 = blueshift (si avvicina)
+	//
+	// Usiamo 0.46 come zero fisico (valore misurato dalla voxelizzazione).
+	// La soglia density > 0 esclude i voxel vuoti dove vel=0.0 non ha
+	// significato fisico — senza di essa tutto il vuoto sembrerebbe gas fermo.
+
+	if (density > 0.f && vel > 0.f) {
+		// doppler in [-1, +1]: negativo = blueshift, positivo = redshift
+		float doppler = (vel - 0.457f) * 2.f;
+		float strength = 0.25f; // quanto il Doppler modifica il colore (0=niente, 1=totale)
+
+		// redshift: spinge verso il rosso, toglie blu
+		// blueshift: spinge verso il blu, toglie rosso
+		baseColor.x += doppler * strength;        // R: sale con redshift
+		baseColor.z -= doppler * strength;        // B: sale con blueshift
+		baseColor.x = std::clamp(baseColor.x, 0.f, 1.f);
+		baseColor.z = std::clamp(baseColor.z, 0.f, 1.f);
+	}
 
 	return baseColor;
 }
 
 // L è la radianza raccolta (luminanza del volume, cioè il colore finale)
 // T è la trasmittanza finale (la transparency)
-void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, float& T, const Grid& grid,  const Grid& niiGrid, const Grid& siiGrid)
+void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, float& T, const Grid& grid,  const Grid& niiGrid, const Grid& siiGrid, const Grid& siiSiiGrid, const Grid& velGrid)
 {
 	// std::default_random_engine generator(omp_get_thread_num()); poichè scattering quasi nullo non mi serve la roulette russa
 	// std::uniform_real_distribution<float> distribution(0.0, 1.0);
@@ -325,13 +388,15 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 		float t = tMin + stride * (n + 0.5); // 0.5 — campiona esattamente al centro di ogni passo:
 		vec3 samplePos = ray(t); // l'operatore che avevo creato
 
-		float density    = lookup(grid,    samplePos);
-		float nii_ha     = lookup(niiGrid, samplePos);
-		float sii_ha     = lookup(siiGrid, samplePos);
+		float density = lookup(grid,    samplePos);
+		float nii_ha = lookup(niiGrid, samplePos);
+		float sii_ha = lookup(siiGrid, samplePos);
+		float sii_sii = lookup(siiSiiGrid, samplePos);
+		float vel = lookup(velGrid, samplePos);
 
 		float emissivity = 2.f;
 		
-		vec3 emColor = nebulaColor(nii_ha, sii_ha, density);
+		vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
 
 		float Tsample = exp(-density * stride * sigma_t); // attenuazione del sample
 		Tvol *= Tsample; // aggiorna trasparenza
@@ -379,10 +444,15 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 	T = Tvol;
 }
 
+// facciamo un tone mapping con Reinhard sulla luminanza
+// Il ray marcher accumula radianza fisica lungo il raggio: i valori di L non sono bounded a [0,1], specialmente nelle zone dense dove molti sample contribuiscono.
+// Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
+// La versione sulla luminanza è fisicamente più corretta di applicarlo canale per canale: si calcola quanto è brillante il pixel complessivamente,e si scala tutti e tre i canali dello stesso fattore. 
+// Così i rapporti di colore tra R, G e B rimangono invariati — un pixel arancio rimane arancio, diventa solo meno intenso. Il Reinhard per canale invece avvicina tutti i canali a valori simili, desaturando l'immagine.
 vec3 reinhard(vec3 c)
 {
-	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
-	float scale = 1.0f / (1.0f + lum);
+	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; // (coefficienti 0.2126/0.7152/0.0722, che sono i pesi percettivi CIE dello spazio sRGB)
+	float scale = 1.0f / (1.0f + lum); // // Il Reinhard comprime i valori alti con la curva x/(1+x), che è asintoticamente limitata a 1 ma non taglia mai bruscamente.
 	return vec3{ c.x * scale, c.y * scale, c.z * scale };
 }
 
@@ -414,6 +484,19 @@ void render()
 		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
 	}
 
+	Grid SiiSiiGrid;
+	SiiSiiGrid.densityData = std::make_unique<float[]>(SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution);
+	{
+		std::ifstream ifs("sii_sii.bin", std::ios::binary);
+		ifs.read((char*)SiiSiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
+	}
+
+	Grid VelGrid;
+	VelGrid.densityData = std::make_unique<float[]>(VelGrid.baseResolution * VelGrid.baseResolution * VelGrid.baseResolution);
+	{
+		std::ifstream ifs("vel.bin", std::ios::binary);
+		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 128 * 128 * 128);
+	}
 
 	// DEBUG — stampa alcuni valori delle griglie
 	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
@@ -432,6 +515,9 @@ void render()
 	size_t width = 640;
 	size_t height = 480;
 
+	// usiamo unnisgned invece che signed poichè char è signed (-128/+127).
+	// Qualsiasi valore di pixel sopra 127 veniva interpretato come negativo, corrompendo il file PPM con colori sbagliati. 
+	// unsigned char copre correttamente 0-255, che è il range standard per immagini a 8 bit per canale.
 	std::unique_ptr<unsigned char[]> imgbuf = std::make_unique<unsigned char[]>(width * height * 3);
 
 	vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // Calcolo origine del raggio
@@ -459,7 +545,7 @@ void render()
 
 			float tmin, tmax;
 			if (raybox(ray, grid.bounds, tmin, tmax)) {
-				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid );
+				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid);
 			}
 
 			vec3 pixelColor = background_color * transmittance + L;
