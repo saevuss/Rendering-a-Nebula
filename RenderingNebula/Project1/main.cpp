@@ -119,7 +119,7 @@ constexpr vec3 background_color{ 0,0,0 };
 
 struct Grid 
 {
-	size_t baseResolution = 128; // size_t è un tipo intero senza segno, perfetto per dimensioni e indici. 1
+	size_t baseResolution = 256; // size_t è un tipo intero senza segno, perfetto per dimensioni e indici. 1
 	std::unique_ptr<float[]> densityData; // è l'array che conterrà tutti i valori di densità. Non lo inizializziamo qui — verrà riempito quando carichiamo il file binario.
 	vec3 bounds[2]{ vec3{-30,-30,-30,}, vec3{30,30,30} }; //i due punti definiscono il bounding box della griglia nello spazio 3D
 
@@ -360,14 +360,15 @@ vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float
 
 // L è la radianza raccolta (luminanza del volume, cioè il colore finale)
 // T è la trasmittanza finale (la transparency)
-void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, float& T, const Grid& grid,  const Grid& niiGrid, const Grid& siiGrid, const Grid& siiSiiGrid, const Grid& velGrid)
-{
-	// std::default_random_engine generator(omp_get_thread_num()); poichè scattering quasi nullo non mi serve la roulette russa
-	// std::uniform_real_distribution<float> distribution(0.0, 1.0);
-
+void integrate(const Ray& ray, const float& tMin, const float& tMax,
+				vec3& L, float& T,
+				const Grid& grid, const Grid& niiGrid, const Grid& siiGrid,
+				const Grid& siiSiiGrid, const Grid& velGrid,
+				std::default_random_engine& rng,
+				std::uniform_real_distribution<float>& dist) {
 	float stepSize = 0.02;
-	float sigma_a = 0.08; // assorbimento: gas quasi trasparente
-	float sigma_s = 0.02; // scattering: praticamente trascurabile
+	float sigma_a = 0.6; // assorbimento
+	float sigma_s = 0.0; // scattering trascurabile
 	float sigma_t = sigma_a + sigma_s;
 	float g = 0;
 	// uint8_t d = 2; // "probabilità" per la Russian Roulette
@@ -385,7 +386,8 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 
 	for (size_t n = 0; n < numSteps; n++) 
 	{
-		float t = tMin + stride * (n + 0.5); // 0.5 — campiona esattamente al centro di ogni passo:
+		float t = tMin + stride * (n + dist(rng)); // jitter  dist(rng) estrae un float casuale in [0,1) ad ogni step.
+		t = std::min(t, tMax); // clamp garantisce che t non superi mai tMax,
 		vec3 samplePos = ray(t); // l'operatore che avevo creato
 
 		float density = lookup(grid,    samplePos);
@@ -394,15 +396,21 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 		float sii_sii = lookup(siiSiiGrid, samplePos);
 		float vel = lookup(velGrid, samplePos);
 
-		float emissivity = 2.f;
+		float emissivity = 4.0;
 		
 		vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
 
 		float Tsample = exp(-density * stride * sigma_t); // attenuazione del sample
 		Tvol *= Tsample; // aggiorna trasparenza
 
+		// Non introduce bias fisico rilevante per la Crab perché i filamenti non sono mai abbastanza densi da rendere il volume completamente opaco in modo uniforme
+		// stai lavorando con densità massima ~0.72 e sigma_t = 0.42. Il contributo oltre quella soglia è inferiore a 0.01% della radianza finale. 
+		// La Russian Roulette è overkill qui — è utile per materiali con forte scattering multiplo, non per emissione quasi pura.
+		if (Tvol < 1e-4f) break; 
+
 		Lvol += emColor * density * emissivity * Tvol * stride; // contributo di emissione
 
+		/*
 		// In-scattering
 		float tlMin, tlMax; 
 		Ray lightRay(samplePos, light_dir);
@@ -410,7 +418,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 		if (density > 0 && raybox(lightRay, grid.bounds, tlMin, tlMax) && tlMax > 0 )
 		{
 
-			size_t numStepsLight = std::min((size_t)std::ceil(tlMax / stepSize), (size_t)16); // numero di passi
+			size_t numStepsLight = std::min((size_t)std::ceil(tlMax / stepSize), (size_t)16); // numero di passi, l'avevo modificato per la nebula crab ma in modo sbagliato
 			float strideLight= tlMax / numStepsLight; // ricalcolo lo step_size giusto per non strabordare
 
 			float tau = 0; // spessore ottico: somma di tutte le densità
@@ -425,6 +433,10 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 			Lvol += light_color * light_attenuation * density * sigma_s * phaseHG(-ray.dir, light_dir, g) * Tvol * stride;
 
 		}
+		*/
+
+
+
 
 		//if (Tvol < 1e-3)
 		//{
@@ -449,8 +461,9 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax, vec3& L, fl
 // Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
 // La versione sulla luminanza è fisicamente più corretta di applicarlo canale per canale: si calcola quanto è brillante il pixel complessivamente,e si scala tutti e tre i canali dello stesso fattore. 
 // Così i rapporti di colore tra R, G e B rimangono invariati — un pixel arancio rimane arancio, diventa solo meno intenso. Il Reinhard per canale invece avvicina tutti i canali a valori simili, desaturando l'immagine.
-vec3 reinhard(vec3 c)
+vec3 reinhard(vec3 c, float exposure = 0.6f)
 {
+	c.x *= exposure; c.y *= exposure; c.z *= exposure; // per avere colori più saturi
 	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; // (coefficienti 0.2126/0.7152/0.0722, che sono i pesi percettivi CIE dello spazio sRGB)
 	float scale = 1.0f / (1.0f + lum); // // Il Reinhard comprime i valori alti con la curva x/(1+x), che è asintoticamente limitata a 1 ma non taglia mai bruscamente.
 	return vec3{ c.x * scale, c.y * scale, c.z * scale };
@@ -466,41 +479,41 @@ void render()
 	Grid grid;
 	grid.densityData = std::make_unique<float[]>(grid.baseResolution * grid.baseResolution * grid.baseResolution);
 	{
-		std::ifstream ifs("density.bin", std::ios::binary);
-		ifs.read((char*)grid.densityData.get(), sizeof(float) * 128 * 128 * 128);
+		std::ifstream ifs("density256.bin", std::ios::binary);
+		ifs.read((char*)grid.densityData.get(), sizeof(float) * 256 * 256 * 256);
 	}
 
 	Grid NiiGrid;
 	NiiGrid.densityData = std::make_unique<float[]>(NiiGrid.baseResolution * NiiGrid.baseResolution * NiiGrid.baseResolution);
 	{
-		std::ifstream ifs("nii_ha.bin", std::ios::binary);
-		ifs.read((char*)NiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
+		std::ifstream ifs("nii_ha256.bin", std::ios::binary);
+		ifs.read((char*)NiiGrid.densityData.get(), sizeof(float) * 256 * 256 * 256); 
 	}
 
 	Grid SiiGrid;
 	SiiGrid.densityData = std::make_unique<float[]>(SiiGrid.baseResolution * SiiGrid.baseResolution * SiiGrid.baseResolution);
 	{
-		std::ifstream ifs("sii_ha.bin", std::ios::binary);
-		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
+		std::ifstream ifs("sii_ha256.bin", std::ios::binary);
+		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 256 * 256 * 256); 
 	}
 
 	Grid SiiSiiGrid;
 	SiiSiiGrid.densityData = std::make_unique<float[]>(SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution);
 	{
-		std::ifstream ifs("sii_sii.bin", std::ios::binary);
-		ifs.read((char*)SiiSiiGrid.densityData.get(), sizeof(float) * 128 * 128 * 128); 
+		std::ifstream ifs("sii_sii256.bin", std::ios::binary);
+		ifs.read((char*)SiiSiiGrid.densityData.get(), sizeof(float) * 256 * 256 * 256); 
 	}
 
 	Grid VelGrid;
 	VelGrid.densityData = std::make_unique<float[]>(VelGrid.baseResolution * VelGrid.baseResolution * VelGrid.baseResolution);
 	{
-		std::ifstream ifs("vel.bin", std::ios::binary);
-		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 128 * 128 * 128);
+		std::ifstream ifs("vel256.bin", std::ios::binary);
+		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 256 * 256 * 256);
 	}
 
 	// DEBUG — stampa alcuni valori delle griglie
 	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
-	for (int i = 0; i < 128*128*128; i++) {
+	for (int i = 0; i < 256*256*256; i++) {
 		float d = grid.densityData[i];
 		float t = NiiGrid.densityData[i];
 		if (d > maxD) maxD = d;
@@ -513,7 +526,7 @@ void render()
 	fprintf(stderr, "Temperat — min=%.1f  max=%.1f\n", minT, maxT);
 
 	size_t width = 640;
-	size_t height = 480;
+	size_t height = 640;
 
 	// usiamo unnisgned invece che signed poichè char è signed (-128/+127).
 	// Qualsiasi valore di pixel sopra 127 veniva interpretato come negativo, corrompendo il file PPM con colori sbagliati. 
@@ -526,10 +539,31 @@ void render()
 	float fov = 45;
 	float focal = tan(M_PI / 180 * fov * 0.5);
 
+	// JITTER
+	// Crea un generatore per ogni thread disponibile.
+	// omp_get_max_threads() restituisce quanti thread OpenMP userà il sistema.
+	std::vector<std::default_random_engine> rngs(omp_get_max_threads());
+	// std::random_device legge entropia hardware (diversa ad ogni run del programma).
+	// Senza questo, ogni esecuzione produrrebbe lo stesso jitter — non vogliamo.
+	std::random_device rd;
+	// Inizializza ogni generatore con un seed unico.
+	// rd() è casuale, +t separa i thread anche se rd() desse valori simili.
+	for (int t = 0; t < omp_get_max_threads(); ++t)
+		rngs[t].seed(rd() + t);
+	// La distribuzione è stateless (non ha memoria interna) — può essere condivisa.
+	// Produce float uniformi in [0.0, 1.0).
+	std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
 	std::atomic<int> rowsDone{0};
 	fprintf(stderr, "Thread disponibili: %d\n", omp_get_max_threads());
 	#pragma omp parallel for schedule(dynamic, 4)
 	for (int j = 0; j < (int)height; ++j) {
+
+		// Ogni thread recupera il SUO generatore tramite il suo indice.
+		// & è fondamentale: è un riferimento, non una copia.
+		// Senza & il generatore verrebbe copiato e lo stato non avanzerebbe tra pixel.
+		auto& rng = rngs[omp_get_thread_num()];
+
 		for (unsigned int i = 0; i < width; ++i) {
 			vec3 rayDir;
 			rayDir.x = (2.f * (i + 0.5f) / width - 1) * focal;
@@ -545,7 +579,7 @@ void render()
 
 			float tmin, tmax;
 			if (raybox(ray, grid.bounds, tmin, tmax)) {
-				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid);
+				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
 			}
 
 			vec3 pixelColor = background_color * transmittance + L;
