@@ -14,6 +14,10 @@
 #include <atomic> 
 #include <omp.h>
 
+//debug
+std::atomic<int> highNii{0};
+std::atomic<int> totalNonZero{0};
+
 struct Matrix
 {
 	const float operator [] (size_t i) const { return (m)[i]; } //m per leggere const
@@ -119,7 +123,7 @@ constexpr vec3 background_color{ 0,0,0 };
 
 struct Grid 
 {
-	size_t baseResolution = 256; // size_t è un tipo intero senza segno, perfetto per dimensioni e indici. 1
+	size_t baseResolution = 512; // size_t è un tipo intero senza segno, perfetto per dimensioni e indici. 1
 	std::unique_ptr<float[]> densityData; // è l'array che conterrà tutti i valori di densità. Non lo inizializziamo qui — verrà riempito quando carichiamo il file binario.
 	vec3 bounds[2]{ vec3{-30,-30,-30,}, vec3{30,30,30} }; //i due punti definiscono il bounding box della griglia nello spazio 3D
 
@@ -282,26 +286,27 @@ vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float
 	// Colori ancorati alla fisica della Crab:
 	// gas ionizzato dal pulsar wind → tende al blu-violaceo (come nelle
 	// immagini ottiche HST della Crab dove la PWN è blu per sincrotrone)
-	vec3 pwn      { 0.2f,  0.4f,  1.0f  }; // blu — gas ionizzato dal pulsar wind (basso NII/Ha)
+	vec3 pwn    { 0.3f,  0.5f,  1.0f  }; // blu — gas ionizzato dal pulsar wind (basso NII/Ha)
 
 	// ejecta termici nella shell → rosso-arancio (dominati da NII, SII)
-	vec3 ejecta   { 0.85f, 0.15f, 0.05f }; // rosso — ejecta densi, basso grado ionizzazione
+	vec3 ejecta { 0.9f,  0.15f, 0.02f };  // rosso — ejecta densi, basso grado ionizzazione
 
 	// zona di shock al fronte di espansione → arancio caldo (alto SII/Ha)
 	// fisicamente: interfaccia tra nebulosa sincrotrone e gas termico
 	// è dove Rayleigh-Taylor instabilities creano i filamenti (Hester 1996, citato nel paper)
-	vec3 shock    { 1.0f,  0.45f, 0.0f  }; // arancio — fronte di shock
+	vec3 shock  { 1.0f,  0.5f,  0.0f  }; // arancio — fronte di shock
 
 	// gas denso (basso sii_sii) → più opaco, tende al rosso scuro
 	// gas rarefatto (alto sii_sii) → più trasparente, tende al blu
 	// NON usiamo "bianco caldo" perché non c'è una stella centrale calda —
 	// il centro della Crab è dominato dalla PWN non da emissione termica densa.
-	vec3 dense    { 0.7f,  0.1f,  0.05f }; // rosso scuro — filamenti ad alta densità elettronica
+	vec3 dense  { 0.6f,  0.08f, 0.02f }; // rosso scuro — filamenti ad alta densità elettronica
 
 	// --- Blend 1: NII/Ha → ionizzazione ---
 	// basso NII/Ha (vicino al pulsar wind) = pwn (blu)
 	// alto NII/Ha (ejecta esterni) = ejecta (rosso)
-	float t_nii = std::clamp(nii_ha * 1.5f, 0.f, 1.f);
+	// dopo — stile HST, density come peso aggiuntivo:
+	float t_nii = std::clamp(nii_ha * 1.5f + density * 0.8f, 0.f, 1.f);
 	vec3 baseColor{
 		pwn.x * (1.f - t_nii) + ejecta.x * t_nii,
 		pwn.y * (1.f - t_nii) + ejecta.y * t_nii,
@@ -344,7 +349,7 @@ vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float
 
 	if (density > 0.f && vel > 0.f) {
 		// doppler in [-1, +1]: negativo = blueshift, positivo = redshift
-		float doppler = (vel - 0.457f) * 2.f;
+		float doppler = (vel - 0.477f) * 2.f;
 		float strength = 0.25f; // quanto il Doppler modifica il colore (0=niente, 1=totale)
 
 		// redshift: spinge verso il rosso, toglie blu
@@ -366,8 +371,8 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 				const Grid& siiSiiGrid, const Grid& velGrid,
 				std::default_random_engine& rng,
 				std::uniform_real_distribution<float>& dist) {
-	float stepSize = 0.02;
-	float sigma_a = 0.6; // assorbimento
+	float stepSize = 0.04;
+	float sigma_a = 0.4; // assorbimento
 	float sigma_s = 0.0; // scattering trascurabile
 	float sigma_t = sigma_a + sigma_s;
 	float g = 0;
@@ -396,7 +401,13 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 		float sii_sii = lookup(siiSiiGrid, samplePos);
 		float vel = lookup(velGrid, samplePos);
 
-		float emissivity = 4.0;
+		// debug una volta sola — conta quanti voxel hanno nii_ha > 0.3
+		if (density > 0.01f) {
+			totalNonZero++;
+			if (nii_ha > 0.3f) highNii++;
+		}
+		
+		float emissivity = 7;
 		
 		vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
 
@@ -461,7 +472,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 // Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
 // La versione sulla luminanza è fisicamente più corretta di applicarlo canale per canale: si calcola quanto è brillante il pixel complessivamente,e si scala tutti e tre i canali dello stesso fattore. 
 // Così i rapporti di colore tra R, G e B rimangono invariati — un pixel arancio rimane arancio, diventa solo meno intenso. Il Reinhard per canale invece avvicina tutti i canali a valori simili, desaturando l'immagine.
-vec3 reinhard(vec3 c, float exposure = 0.6f)
+vec3 reinhard(vec3 c, float exposure = 0.9f)
 {
 	c.x *= exposure; c.y *= exposure; c.z *= exposure; // per avere colori più saturi
 	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; // (coefficienti 0.2126/0.7152/0.0722, che sono i pesi percettivi CIE dello spazio sRGB)
@@ -479,41 +490,41 @@ void render()
 	Grid grid;
 	grid.densityData = std::make_unique<float[]>(grid.baseResolution * grid.baseResolution * grid.baseResolution);
 	{
-		std::ifstream ifs("density256.bin", std::ios::binary);
-		ifs.read((char*)grid.densityData.get(), sizeof(float) * 256 * 256 * 256);
+		std::ifstream ifs("density512.bin", std::ios::binary);
+		ifs.read((char*)grid.densityData.get(), sizeof(float) * 512 * 512 * 512);
 	}
 
 	Grid NiiGrid;
 	NiiGrid.densityData = std::make_unique<float[]>(NiiGrid.baseResolution * NiiGrid.baseResolution * NiiGrid.baseResolution);
 	{
-		std::ifstream ifs("nii_ha256.bin", std::ios::binary);
-		ifs.read((char*)NiiGrid.densityData.get(), sizeof(float) * 256 * 256 * 256); 
+		std::ifstream ifs("nii_ha512.bin", std::ios::binary);
+		ifs.read((char*)NiiGrid.densityData.get(), sizeof(float) * 512 * 512 * 512); 
 	}
 
 	Grid SiiGrid;
 	SiiGrid.densityData = std::make_unique<float[]>(SiiGrid.baseResolution * SiiGrid.baseResolution * SiiGrid.baseResolution);
 	{
-		std::ifstream ifs("sii_ha256.bin", std::ios::binary);
-		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 256 * 256 * 256); 
+		std::ifstream ifs("sii_ha512.bin", std::ios::binary);
+		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 512 * 512 * 512); 
 	}
 
 	Grid SiiSiiGrid;
 	SiiSiiGrid.densityData = std::make_unique<float[]>(SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution);
 	{
-		std::ifstream ifs("sii_sii256.bin", std::ios::binary);
-		ifs.read((char*)SiiSiiGrid.densityData.get(), sizeof(float) * 256 * 256 * 256); 
+		std::ifstream ifs("sii_sii512.bin", std::ios::binary);
+		ifs.read((char*)SiiSiiGrid.densityData.get(), sizeof(float) * 512 * 512 * 512); 
 	}
 
 	Grid VelGrid;
 	VelGrid.densityData = std::make_unique<float[]>(VelGrid.baseResolution * VelGrid.baseResolution * VelGrid.baseResolution);
 	{
-		std::ifstream ifs("vel256.bin", std::ios::binary);
-		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 256 * 256 * 256);
+		std::ifstream ifs("vel512.bin", std::ios::binary);
+		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 512 * 512 * 512);
 	}
 
 	// DEBUG — stampa alcuni valori delle griglie
 	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
-	for (int i = 0; i < 256*256*256; i++) {
+	for (int i = 0; i < 512*512*512; i++) {
 		float d = grid.densityData[i];
 		float t = NiiGrid.densityData[i];
 		if (d > maxD) maxD = d;
@@ -598,6 +609,9 @@ void render()
 			fprintf(stderr, "\r%.1f%%", 100.0f * rowsDone / height);
 		}
 	}
+
+	fprintf(stderr, "NII alto (>0.3): %d / %d totali non-zero\n", 
+		highNii.load(), totalNonZero.load());
 
 
 	fprintf(stderr, "Render completato.\n");
