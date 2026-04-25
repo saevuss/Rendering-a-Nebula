@@ -3,7 +3,7 @@ A nebula renderer built in C++ that uses raymarching to simulate physically-grou
 
 ### Data - Crab Nebula (M1)
 
-3D maps of the Crab Nebula from [Martin et al. (2021)](https://arxiv.org/pdf/2101.02709), available at [thomasorb/M1_paper](https://github.com/thomasorb/M1_paper/tree/master). Each FITS file is a 3D cube where two axes are spatial (X, Y) and the third is line-of-sight velocity (Z), used for volumetric visualization of the nebula.
+3D point clouds of the Crab Nebula from [Martin et al. (2021)](https://arxiv.org/pdf/2101.02709), available at [thomasorb/M1_paper](https://github.com/thomasorb/M1_paper/tree/master). Each FITS file contains **416,573 points** with 4 columns: `X`, `Y`, `Z` (spatial coordinates, normalized in galactic units, range ≈ −1.5 → +1.5) and a scalar value.
 
 | File | Description |
 |------|-------------|
