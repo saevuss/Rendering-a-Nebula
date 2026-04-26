@@ -11,6 +11,9 @@
 #include <limits>
 #include <cassert>
 
+#include <string>
+#include <sstream>
+
 #include <atomic> 
 #include <omp.h>
 
@@ -135,7 +138,11 @@ struct Grid
 			zi < 0 || zi > baseResolution - 1) 
 			return 0;
 
-		return densityData[(zi * baseResolution + yi) * baseResolution + xi];
+		// inverti yi: invece di leggere yi leggi (baseResolution-1 - yi)
+		// I dati SITELLE/FITS hanno l'asse Y con origine in basso 
+		int yi_flipped = (int)baseResolution - 1 - yi;
+		int xi_flipped = (int)baseResolution - 1 - xi;
+		return densityData[(zi * baseResolution + yi_flipped) * baseResolution + xi_flipped];
 	}
 };
 
@@ -166,6 +173,143 @@ struct Ray
 	vec3 invDir;  //Servirà nell'algoritmo ray-box. Invece di dividere per dir.x ad ogni calcolo (lento), pre-calcoliamo 1/dir.x una volta sola e la usiamo come moltiplicazione (veloce).
 	bool sign[3]; //Un array di 3 booleani, uno per x, uno per y, uno per z. Ogni valore sarà 1 se invDir su quell'asse è negativo, 0 se positivo. Serve per sapere da che lato arriva il raggio rispetto al box.
 };
+
+// STELLE
+struct Star
+{
+	vec3 dir; //vettore unitario che punta verso la stella nel sistema di coordinate celesti
+	float brightness; // flusso lineare, calcolato dalla magnitudine Gaia (// scala: mag 0 → 1.0, mag 5 → 0.01, mag 10 → 0.0001)
+};
+
+Matrix buildICRSToWorldMatrix()
+{
+	float raCrab  = (float)(83.63 * M_PI / 180.0);
+	float decCrab = (float)(22.01 * M_PI / 180.0);
+
+	// direzione verso la Crab in ICRS
+	vec3 crabDir;
+	crabDir.x = cos(decCrab) * cos(raCrab);
+	crabDir.y = cos(decCrab) * sin(raCrab);
+	crabDir.z = sin(decCrab);
+
+	// la camera guarda verso +Z mondo, quindi crabDir ICRS → +Z mondo
+	vec3 camZ = { crabDir.x, crabDir.y, crabDir.z };
+
+	// polo nord celeste come vettore "up" di riferimento
+	vec3 northPole = { 0.f, 0.f, 1.f };
+
+	// asse X = northPole × camZ: il vettore "destra" nel piano del cielo
+	vec3 camX;
+	camX.x = northPole.y * camZ.z - northPole.z * camZ.y;
+	camX.y = northPole.z * camZ.x - northPole.x * camZ.z;
+	camX.z = northPole.x * camZ.y - northPole.y * camZ.x;
+	camX.nor();
+
+	// asse Y = camZ × camX: il vettore "su" ortogonale per costruzione
+	vec3 camY;
+	camY.x = camZ.y * camX.z - camZ.z * camX.y;
+	camY.y = camZ.z * camX.x - camZ.x * camX.z;
+	camY.z = camZ.x * camX.y - camZ.y * camX.x;
+	camY.nor();
+
+	// righe della matrice = assi del sistema mondo espressi in ICRS
+	Matrix m;
+	m.m[0] = camX.x;  m.m[1] = camX.y;  m.m[2] = camX.z;
+	m.m[3] = camY.x;  m.m[4] = camY.y;  m.m[5] = camY.z;
+	m.m[6] = camZ.x;  m.m[7] = camZ.y;  m.m[8] = camZ.z;
+
+	return m;
+}
+
+vec3 applyRotation(const Matrix& m, const vec3& v)
+{
+	return vec3{
+		m.m[0]*v.x + m.m[1]*v.y + m.m[2]*v.z,
+		m.m[3]*v.x + m.m[4]*v.y + m.m[5]*v.z,
+		m.m[6]*v.x + m.m[7]*v.y + m.m[8]*v.z
+	};
+}
+
+std::vector<Star> loadStars(const std::string& csvPath)
+{
+	std::vector<Star> stars;
+
+	std::ifstream f(csvPath);
+	if (!f.is_open())  //   // se il file non si apre avvisa ma non crashare, il render continuerà senza stelle
+	{
+		fprintf(stderr, "Attenzione: impossibile aprire %s\n", csvPath.c_str());
+		return stars;
+	}
+
+	std::string line;
+
+	std::getline(f, line);    // la prima riga è l'header "source_id,ra,dec,phot_g_mean_mag" — la saltiamo
+
+	while (std::getline(f, line))
+	{
+		long long sid; // source_id lo leggiamo ma non do usiamo
+		double ra, dec, mag;
+
+		// sscanf parsea la riga csv nei quattro valori
+		// %lld = long long (source_id), %lf = double (ra, dec, mag)
+		if (sscanf(line.c_str(), "%lld,%lf,%lf,%lf", &sid, &ra, &dec, &mag) != 4)
+			continue; // riga malformata o vuota, salta
+
+		// conversion gradi in radianti
+		float raRad = (float)(ra * M_PI / 180);
+		float decRad = (float)(dec * M_PI / 180);
+
+		//conversione coordinate sferice -> cartesiane
+		vec3 dir;
+		dir.x = cos(decRad) * cos(raRad);
+		dir.y = cos(decRad) * sin(raRad);
+		dir.z = sin(decRad);
+
+		// conversinoe di amagnitudine a flusso lineare (formula di Pogson)
+		float brightness = pow(10.f, (0.f - (float)mag) / 2.5f);
+
+		// non consideriamo il contributo delle stelle troppo deboli (mag 16 → brightness ≈ 2.5e-7, già quasi zero)
+		if (brightness < 1e-6f) continue;
+
+		static Matrix icrsToWorld = buildICRSToWorldMatrix();
+		vec3 dirWorld = applyRotation(icrsToWorld, dir);
+		dirWorld.nor();
+		stars.push_back(Star{ dirWorld, brightness });	}
+
+	fprintf(stderr, "Stelle caricate: %zu\n", stars.size());
+	return stars;
+
+};
+
+vec3 starContribution(const Ray& ray, const std::vector<Star>& stars, float starBrightness) // starBrightness è il parametro globale che si può bilanciare a mano per la luminosità delle stelle
+{
+	vec3 result{ 0,0,0 };
+
+	float sigma = 0.001f; // sigma controlla la dimensione angolare apparente delle stelle più è basso più le stelle sono puntiformi e precise
+	float twoSigmaSq = 2.f * sigma * sigma;     // pre-calcoliamo 2*sigma^2 fuori dal loop perchè è costante per tutte le stelle; evita di ricalcolarlo migliaia di volte
+
+	for (const auto& star : stars)
+	{
+		float cosTheta = ray.dir * star.dir; // prodotto scalare tra direzione di raggio e stella; se puntano nella stessa direzione -> 1; direzione opposta -> -1
+
+		// early exit: se cosTheta < 0.99 l'angolo è maggiore di ~8° -> la gaussiana a quell'angolo è già praticamente zero
+		// questo salto evita il calcolo di exp() per quasi tutte le stelle e ottimizza la funzione
+		if (cosTheta < 0.9999f) continue;
+
+		float theta2 = 2.f * (1.f - cosTheta); // invece che usare acos utilizzo questa approssimazione perchè più veloce ed è valida per piccoli angoli
+		float profile = exp(-theta2 / twoSigmaSq); // profilo gaussiano: vale ~1 quando theta=0, decade rapidamente
+
+		float contrib = star.brightness * starBrightness * profile;
+
+		// la stella è bianca — sommiamo lo stesso valore a R, G, B
+		result.x += contrib;
+		result.y += contrib;
+		result.z += contrib;
+	}
+
+	return result;
+};
+
 
 bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tmax)
 {
@@ -381,9 +525,9 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 	size_t numSteps = std::ceil((tMax - tMin) / stepSize); // numero di passi
 	float stride = (tMax - tMin) / numSteps; // ricalcolo lo step_size giusto per non strabordare
 
-	// luce
-	vec3 light_dir{ -0.315798, 0.719361, 0.618702 };
-	vec3 light_color{ 5, 5, 5 };
+	// luce (togliendo l'in -scattering, la luce è solo quella emessa dal volume, non c'è illuminazione diretta da fonti esterne)
+	// vec3 light_dir{ -0.315798, 0.719361, 0.618702 };
+	// vec3 light_color{ 5, 5, 5 };
 
 	float Tvol = 1; //transparency
 	vec3 Lvol{ 0,0,0 }; //colore finale
@@ -522,6 +666,13 @@ void render()
 		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 512 * 512 * 512);
 	}
 
+	// carica il catalogo stelle Gaia
+	std::vector<Star> stars = loadStars("gaia_stars.csv");
+	//debug
+	for (int i = 0; i < std::min(5, (int)stars.size()); ++i)
+		fprintf(stderr, "stella %d: dir=(%+.3f, %+.3f, %+.3f)\n",
+			i, stars[i].dir.x, stars[i].dir.y, stars[i].dir.z);
+
 	// DEBUG — stampa alcuni valori delle griglie
 	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
 	for (int i = 0; i < 512*512*512; i++) {
@@ -536,8 +687,8 @@ void render()
 	fprintf(stderr, "Density  — min=%.4f  max=%.4f\n", minD, maxD);
 	fprintf(stderr, "Temperat — min=%.1f  max=%.1f\n", minT, maxT);
 
-	size_t width = 640;
-	size_t height = 640;
+	size_t width = 800;
+	size_t height = 800;
 
 	// usiamo unnisgned invece che signed poichè char è signed (-128/+127).
 	// Qualsiasi valore di pixel sopra 127 veniva interpretato come negativo, corrompendo il file PPM con colori sbagliati. 
@@ -592,6 +743,14 @@ void render()
 			if (raybox(ray, grid.bounds, tmin, tmax)) {
 				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
 			}
+
+			float starBrightness = 50.f; // parametro di bilanciamento luminosità stelle
+
+
+			vec3 starL = starContribution(ray, stars, starBrightness);
+
+			//  alla luce già accumulata dalla nebulosa, aggiungo anche la luce delle stelle filtrata dalla trasparenza. L diventa la somma di tutto — nebulosa più stelle.
+			L += starL * transmittance;
 
 			vec3 pixelColor = background_color * transmittance + L;
 
