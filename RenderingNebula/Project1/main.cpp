@@ -112,6 +112,15 @@ struct vec3
 	}
 };
 
+vec3 cross(const vec3& a, const vec3& b)
+{
+	return vec3{
+		a.y * b.z - a.z * b.y,
+		a.z * b.x - a.x * b.z,
+		a.x * b.y - a.y * b.x
+	};
+}
+
 
 vec3 transformPoint(const Matrix& m, const vec3& p) // per trasformare punti
 {
@@ -138,12 +147,7 @@ struct Grid
 			zi < 0 || zi > baseResolution - 1) 
 			return 0;
 
-		// inverti yi: invece di leggere yi leggi (baseResolution-1 - yi)
-		// I dati SITELLE/FITS hanno l'asse Y con origine in basso 
-		int yi_flipped = (int)baseResolution - 1 - yi;
-		int xi_flipped = (int)baseResolution - 1 - xi;
-		return densityData[(zi * baseResolution + yi_flipped) * baseResolution + xi_flipped];
-	}
+		return densityData[(zi * baseResolution + yi) * baseResolution + xi];	}
 };
 
 struct Ray 
@@ -181,19 +185,22 @@ struct Star
 	float brightness; // flusso lineare, calcolato dalla magnitudine Gaia (// scala: mag 0 → 1.0, mag 5 → 0.01, mag 10 → 0.0001)
 };
 
+// Le stelle nel catalogo Gaia hanno coordinate nel sistema ICRS mentre ay marcher invece ha il suo sistema mondo dove la camera guarda verso -Z, la nebulosa è all'origine,
+// La soluzione è costruire una matrice di rotazione che trasforma ICRS → spazio mondo:
 Matrix buildICRSToWorldMatrix()
 {
+	// conversione coordinate della Crab in radianti 
 	float raCrab  = (float)(83.63 * M_PI / 180.0);
 	float decCrab = (float)(22.01 * M_PI / 180.0);
 
-	// direzione verso la Crab in ICRS
+	// direzione verso la Crab come vettore in sistema ICRS
 	vec3 crabDir;
 	crabDir.x = cos(decCrab) * cos(raCrab);
 	crabDir.y = cos(decCrab) * sin(raCrab);
 	crabDir.z = sin(decCrab);
 
-	// la camera guarda verso +Z mondo, quindi crabDir ICRS → +Z mondo
-	vec3 camZ = { crabDir.x, crabDir.y, crabDir.z };
+	// Mettiamo la Crab verso -Z mondo, in modo che la camera la veda al frame 0
+	vec3 camZ = { -crabDir.x, -crabDir.y, -crabDir.z };
 
 	// polo nord celeste come vettore "up" di riferimento
 	vec3 northPole = { 0.f, 0.f, 1.f };
@@ -217,7 +224,7 @@ Matrix buildICRSToWorldMatrix()
 	m.m[0] = camX.x;  m.m[1] = camX.y;  m.m[2] = camX.z;
 	m.m[3] = camY.x;  m.m[4] = camY.y;  m.m[5] = camY.z;
 	m.m[6] = camZ.x;  m.m[7] = camZ.y;  m.m[8] = camZ.z;
-
+	// (solo 9 elementi, matrice 3x3 di rotazione)
 	return m;
 }
 
@@ -235,7 +242,7 @@ std::vector<Star> loadStars(const std::string& csvPath)
 	std::vector<Star> stars;
 
 	std::ifstream f(csvPath);
-	if (!f.is_open())  //   // se il file non si apre avvisa ma non crashare, il render continuerà senza stelle
+	if (!f.is_open())  // se il file non si apre avvisa ma non crashare, il render continuerà senza stelle
 	{
 		fprintf(stderr, "Attenzione: impossibile aprire %s\n", csvPath.c_str());
 		return stars;
@@ -260,6 +267,7 @@ std::vector<Star> loadStars(const std::string& csvPath)
 		float decRad = (float)(dec * M_PI / 180);
 
 		//conversione coordinate sferice -> cartesiane
+		// Il risultato è un vettore unitario in ICRS per ciascuna stella
 		vec3 dir;
 		dir.x = cos(decRad) * cos(raRad);
 		dir.y = cos(decRad) * sin(raRad);
@@ -271,8 +279,8 @@ std::vector<Star> loadStars(const std::string& csvPath)
 		// non consideriamo il contributo delle stelle troppo deboli (mag 16 → brightness ≈ 2.5e-7, già quasi zero)
 		if (brightness < 1e-6f) continue;
 
-		static Matrix icrsToWorld = buildICRSToWorldMatrix();
-		vec3 dirWorld = applyRotation(icrsToWorld, dir);
+		static Matrix icrsToWorld = buildICRSToWorldMatrix(); //Il static è importante: la matrice viene costruita una volta sola al primo caricamento e riusata per tutte le stelle.
+		vec3 dirWorld = applyRotation(icrsToWorld, dir);// Usa l'operatore nativo column-major! // rotazione di stelle da ICRS a spazio mondo
 		dirWorld.nor();
 		stars.push_back(Star{ dirWorld, brightness });	}
 
@@ -625,7 +633,40 @@ vec3 reinhard(vec3 c, float exposure = 0.9f)
 }
 
 // matrice della camera come variabile globale
-Matrix cameraToWorld{ 1,0,0,0, 0,1,0,0, 0,0,-1,0, 0,0,80,1 };
+// Matrix cameraToWorld{ 1,0,0,0, 0,1,0,0, 0,0,-1,0, 0,0,80,1 };
+
+Matrix buildOrbitCamera(float orbitAngle, float distance) 
+{
+	// posizione della camera sull'orbita (piano XZ del world space(
+	vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
+
+	// La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
+	//  Per usarlo come direzione serve normalizzarlo 
+	vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
+
+	// asse y del world space usato come riferimento per asse "su". poi dopo calcoleremo quella effettiva
+	vec3 worldUp{ 0.f, 1.f, 0.f }; 
+
+	//  asse come prodotto vettoriale del riferimento e forward
+	vec3 right = cross(forward, worldUp); // asse 2
+	right.nor();
+
+	// calcolo effettivo asse up
+	vec3 up = cross(right, forward);
+	up.nor();
+
+	vec3 camZ{ -forward.x, -forward.y, -forward.z };// -forward perché il ray marcher spara raggi verso -Z locale
+
+	// Costruzione matrice column-major
+	Matrix m;
+	m.m[0]=right.x;  m.m[4]=up.x;  m.m[8] =camZ.x;  m.m[12]=camPos.x;
+	m.m[1]=right.y;  m.m[5]=up.y;  m.m[9] =camZ.y;  m.m[13]=camPos.y;
+	m.m[2]=right.z;  m.m[6]=up.z;  m.m[10]=camZ.z;  m.m[14]=camPos.z;
+	m.m[3]=0.f;      m.m[7]=0.f;   m .m[11]=0.f;     m.m[15]=1.f;
+
+	return m;
+}
+
 void render()
 {
 	fprintf(stderr, "Rendering frame"); 
@@ -695,7 +736,7 @@ void render()
 	// unsigned char copre correttamente 0-255, che è il range standard per immagini a 8 bit per canale.
 	std::unique_ptr<unsigned char[]> imgbuf = std::make_unique<unsigned char[]>(width * height * 3);
 
-	vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // Calcolo origine del raggio
+	// vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // Calcolo origine del raggio; non più usato qui per animazione
 
 	auto frameAspectRatio = width / float(height);
 	float fov = 45;
@@ -716,77 +757,108 @@ void render()
 	// Produce float uniformi in [0.0, 1.0).
 	std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-	std::atomic<int> rowsDone{0};
+	
 	fprintf(stderr, "Thread disponibili: %d\n", omp_get_max_threads());
-	#pragma omp parallel for schedule(dynamic, 4)
-	for (int j = 0; j < (int)height; ++j) {
 
-		// Ogni thread recupera il SUO generatore tramite il suo indice.
-		// & è fondamentale: è un riferimento, non una copia.
-		// Senza & il generatore verrebbe copiato e lo stato non avanzerebbe tra pixel.
-		auto& rng = rngs[omp_get_thread_num()];
+	// Inizio loop animazione
 
-		for (unsigned int i = 0; i < width; ++i) {
-			vec3 rayDir;
-			rayDir.x = (2.f * (i + 0.5f) / width - 1) * focal;
-			rayDir.y = (1 - 2.f * (j + 0.5f) / height) * focal * 1 / frameAspectRatio;
-			rayDir.z = -1.f;
-			rayDir *= cameraToWorld; //transformo la direzione con matrice
-			rayDir.nor();
+	// per test facciamo solo d1 frame
+	float testAngles[] = { 0.f}; 
+	int numFrames = 1;
 
-			Ray ray(rayOrig, rayDir);
+	// int numFrames = 120;
+	for (int frame = 0; frame < numFrames; ++frame) {
 
-			vec3 L;
-			float transmittance = 1;
+		fprintf(stderr, "\n=== Rendering frame %d / %d ===\n", frame + 1, numFrames);
 
-			float tmin, tmax;
-			if (raybox(ray, grid.bounds, tmin, tmax)) {
-				integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
+		// float angle = 2.f * M_PI * frame / numFrames; //calcolo angolo per ciascun frame
+		float angle = testAngles[frame]; // Prende l'angolo dall'array per il test
+		Matrix cameraToWorld = buildOrbitCamera(angle, 80.f); // costruisco matrice di rotazione della telecamera per ciascun frame
+		vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // il ray ovviamente dipende da dov è la camera
+
+		std::atomic<int> rowsDone{0};
+
+		#pragma omp parallel for schedule(dynamic, 4)
+		for (int j = 0; j < (int)height; ++j) {
+
+			// Ogni thread recupera il SUO generatore tramite il suo indice.
+			// & è fondamentale: è un riferimento, non una copia.
+			// Senza & il generatore verrebbe copiato e lo stato non avanzerebbe tra pixel.
+			auto& rng = rngs[omp_get_thread_num()];
+
+			for (unsigned int i = 0; i < width; ++i) {
+				vec3 rayDir;
+				rayDir.x = (2.f * (i + 0.5f) / width - 1) * focal;
+				rayDir.y = (1 - 2.f * (j + 0.5f) / height) * focal * 1 / frameAspectRatio;
+				rayDir.z = -1.f;
+				rayDir *= cameraToWorld; //transformo la direzione con matrice
+				rayDir.nor();
+
+				Ray ray(rayOrig, rayDir);
+
+				vec3 L;
+				float transmittance = 1;
+
+				float tmin, tmax;
+				if (raybox(ray, grid.bounds, tmin, tmax)) {
+					integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
+				}
+
+				float starBrightness = 50.f; // parametro di bilanciamento luminosità stelle
+
+
+				vec3 starL = starContribution(ray, stars, starBrightness);
+
+				//  alla luce già accumulata dalla nebulosa, aggiungo anche la luce delle stelle filtrata dalla trasparenza. L diventa la somma di tutto — nebulosa più stelle.
+				L += starL * transmittance;
+
+				vec3 pixelColor = background_color * transmittance + L;
+
+				size_t pixelOffset = (j * width + i) * 3;
+
+				vec3 mapped = reinhard(pixelColor);
+				imgbuf[pixelOffset + 0] = static_cast<unsigned char>(std::clamp(mapped.x, 0.f, 1.f) * 255);
+				imgbuf[pixelOffset + 1] = static_cast<unsigned char>(std::clamp(mapped.y, 0.f, 1.f) * 255);
+				imgbuf[pixelOffset + 2] = static_cast<unsigned char>(std::clamp(mapped.z, 0.f, 1.f) * 255);
 			}
 
-			float starBrightness = 50.f; // parametro di bilanciamento luminosità stelle
-
-
-			vec3 starL = starContribution(ray, stars, starBrightness);
-
-			//  alla luce già accumulata dalla nebulosa, aggiungo anche la luce delle stelle filtrata dalla trasparenza. L diventa la somma di tutto — nebulosa più stelle.
-			L += starL * transmittance;
-
-			vec3 pixelColor = background_color * transmittance + L;
-
-			size_t pixelOffset = (j * width + i) * 3;
-			
-			vec3 mapped = reinhard(pixelColor);
-			imgbuf[pixelOffset + 0] = static_cast<unsigned char>(std::clamp(mapped.x, 0.f, 1.f) * 255);
-			imgbuf[pixelOffset + 1] = static_cast<unsigned char>(std::clamp(mapped.y, 0.f, 1.f) * 255);
-			imgbuf[pixelOffset + 2] = static_cast<unsigned char>(std::clamp(mapped.z, 0.f, 1.f) * 255);
+			#pragma omp critical
+			{
+				++rowsDone;
+				fprintf(stderr, "\r%.1f%%", 100.0f * rowsDone / height);
+			}
 		}
 
-		#pragma omp critical
-		{
-			++rowsDone;
-			fprintf(stderr, "\r%.1f%%", 100.0f * rowsDone / height);
-		}
+		// Salvataggio con nome sequenziale per poterli unire in video
+		char filename[64];
+		snprintf(filename, sizeof(filename), "nebula_%04d.ppm", frame);
+		std::ofstream ofs(filename, std::ios::binary);
+		ofs << "P6\n" << width << " " << height << "\n255\n";
+		ofs.write(reinterpret_cast<const char*>(imgbuf.get()), width * height * 3);
+		ofs.close();
+
 	}
 
-	fprintf(stderr, "NII alto (>0.3): %d / %d totali non-zero\n", 
-		highNii.load(), totalNonZero.load());
-
-
-	fprintf(stderr, "Render completato.\n");
-
-
-	const char* filename = "nebula.ppm";
-	std::ofstream ofs;
-	ofs.open(filename, std::ios::binary);
-	ofs << "P6\n" << width << " " << height << "\n255\n";
-	ofs.write(reinterpret_cast<const char*>(imgbuf.get()), width * height * 3);
-	ofs.close();
+	fprintf(stderr, "Render di tutti i frame completato.\n");
 }
 
 
 int main() 
 {
+	// TEST ζ Tauri — verifica orientamento stelle
+	float ra  = 84.41f * M_PI / 180.f;
+	float dec = 21.14f * M_PI / 180.f;
+	vec3 zetaTau{ cos(dec)*cos(ra), cos(dec)*sin(ra), sin(dec) };
+
+	Matrix icrsToWorld = buildICRSToWorldMatrix();
+
+	// USA APPLYROTATION, NON L'OPERATORE *
+	vec3 v = applyRotation(icrsToWorld, zetaTau); 
+
+	v.nor();
+	fprintf(stderr, "zetaTau world: (%+.3f, %+.3f, %+.3f)\n", v.x, v.y, v.z);
+	// Atteso: Z circa -1.00, X leggermente positivo, Y leggermente negativo
+
 	render();
 	return 0;
 }
