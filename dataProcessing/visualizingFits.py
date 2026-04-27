@@ -1,7 +1,7 @@
 from astropy.io import fits
 import numpy as np
 
-file = "fits/3dmap_XYZnii_ha.fits"
+file = "fits/3dmap_XYZflux.fits"
 with fits.open(file) as hdul:
     data = hdul[0].data          # shape: (4, 416573)
     X   = data[0]

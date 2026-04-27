@@ -54,6 +54,7 @@ sii_ha    = voxelize("fits/3dmap_XYZsii_ha.fits", resolution=128) #calling the f
 sii_sii    = voxelize("fits/3dmap_XYZsii_sii.fits", resolution=128) #calling the function we have defined
 vel    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=128) #calling the function we have defined
 
+
 os.makedirs("bin", exist_ok=True)
 density.tofile("bin/density.bin")
 nii_ha.tofile("bin/nii_ha.bin")
