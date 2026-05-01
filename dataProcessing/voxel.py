@@ -20,14 +20,17 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     #which is far more luminous than others, it would result in a single pixel and the rest black
     vmax = np.percentile(val[val > 0], percentile_clip)
     val = np.clip(val, 0, vmax)
+    
+    #isotrope scale
+    center = (xyz.max(axis=0) + xyz.min(axis=0)) / 2
+    scale  = (xyz.max(axis=0) - xyz.min(axis=0)).max() / 2  # scala unica
 
-    #normalization of xyz from their original range [-1.5, 1.5] to [0, resolution-1]
-    mins = xyz.min(axis=0)
-    maxs = xyz.max(axis=0)
+    xyz_norm = (xyz - center) / scale  # ora in [-1, 1] isotropo
 
-    #every point is now an index in the 3d grid
-    idx = ((xyz - mins) / (maxs - mins)*(resolution -1)).astype(int)
-    idx = np.clip(idx, 0, resolution -1)
+    idx_raw = ((xyz - center) / scale + 1.0) / 2.0 * (resolution - 1)
+    idx = idx_raw.astype(int)
+    idx[:, 0] = (resolution - 1) - idx[:, 0] #flip axis RA(X)
+    idx = np.clip(idx, 0, resolution - 1)
 
     # creation of the empty grid
     grid = np.zeros((resolution, resolution, resolution), dtype=np.float32)
@@ -48,16 +51,16 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     #resulted to be near to 0
     return grid.astype('<f4') #to resolve endianness
 
-density = voxelize("fits/3dmap_XYZflux.fits", resolution=128) #calling the function we have defined
-nii_ha    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=128) #calling the function we have defined
-sii_ha    = voxelize("fits/3dmap_XYZsii_ha.fits", resolution=128) #calling the function we have defined
-sii_sii    = voxelize("fits/3dmap_XYZsii_sii.fits", resolution=128) #calling the function we have defined
-vel    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=128) #calling the function we have defined
+density = voxelize("fits/3dmap_XYZflux.fits", resolution=512) #calling the function we have defined
+nii_ha    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=512) #calling the function we have defined
+sii_ha    = voxelize("fits/3dmap_XYZsii_ha.fits", resolution=512) #calling the function we have defined
+sii_sii    = voxelize("fits/3dmap_XYZsii_sii.fits", resolution=512) #calling the function we have defined
+vel    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=512) #calling the function we have defined
 
 
-os.makedirs("bin", exist_ok=True)
-density.tofile("bin/density.bin")
-nii_ha.tofile("bin/nii_ha.bin")
-sii_ha.tofile("bin/sii_ha.bin")
-sii_sii.tofile("bin/sii_sii.bin")
-vel.tofile("bin/vel.bin")
+os.makedirs("bin_512/", exist_ok=True)
+density.tofile("bin_512/density.bin")
+nii_ha.tofile("bin_512/nii_ha.bin")
+sii_ha.tofile("bin_512/sii_ha.bin")
+sii_sii.tofile("bin_512/sii_sii.bin")
+vel.tofile("bin_512/vel.bin")

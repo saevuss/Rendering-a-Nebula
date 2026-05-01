@@ -13,6 +13,23 @@ A nebula renderer built in C++ that uses raymarching to simulate physically-grou
 | `3dmap_XYZsii_ha.fits` | [S II]/Hα ratio — highlights sulfur-rich filaments |
 | `3dmap_XYZsii_sii.fits` | [S II] doublet ratio — traces electron density variations |
 
+#### Axis Mapping
+ 
+The coordinate assignment is defined in the `show_cloud` function of `3d maps.ipynb`:
+ 
+```python
+_y, _z, _x, _scalar = pyfits.open(path)[0].data.T
+cloud = np.array([_x[nonans], _y[nonans], _z[nonans]]).T
+```
+ 
+This unpacking means:
+ 
+| FITS column | Martin variable | Physical meaning          | Direction         |
+|-------------|-----------------|---------------------------|-------------------|
+| `col 0`     | `_y`            | **Dec** (sky plane)       | North = positive  |
+| `col 1`     | `_z`            | **Line of sight** (Doppler depth) | Receding = positive (redshift) |
+| `col 2`     | `_x`            | **RA** (sky plane)        | East = positive   |
+
 
 ### Data processing
 Inspiration from 
@@ -30,3 +47,7 @@ In [Fitting Pulsar Wind Tori](https://iopscience.iop.org/article/10.1086/380486/
 
 #### Data
 [Chandra OpenFITS: Crab Nebula](https://chandra.harvard.edu/photo/openFITS/crab.html)
+[Italian Video on Crab](https://www.youtube.com/watch?v=656NJVxXias)
+[Nasa Crab nebula multilayer](https://science.nasa.gov/missions/hubble/nasas-great-observatories-help-astronomers-build-a-3d-visualization-of-an-exploded-star/)
+https://chandra.cfa.harvard.edu/photo/2009/crab/
+
