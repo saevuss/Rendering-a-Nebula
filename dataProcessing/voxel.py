@@ -29,7 +29,6 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
 
     idx_raw = ((xyz - center) / scale + 1.0) / 2.0 * (resolution - 1)
     idx = idx_raw.astype(int)
-    idx[:, 0] = (resolution - 1) - idx[:, 0] #flip axis RA(X)
     idx = np.clip(idx, 0, resolution - 1)
 
     # creation of the empty grid
@@ -51,11 +50,40 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     #resulted to be near to 0
     return grid.astype('<f4') #to resolve endianness
 
+def voxelize_vel(fits_path, resolution):
+    with fits.open(fits_path) as hdul:
+        data = hdul[0].data
+    xyz = data[:, :3].astype(np.float32)
+    val = data[:, 3].astype(np.float32)  # km/s, range [-1814, +1737]
+
+    center = (xyz.max(axis=0) + xyz.min(axis=0)) / 2
+    scale  = (xyz.max(axis=0) - xyz.min(axis=0)).max() / 2
+    idx_raw = (xyz - center) / scale
+    idx_raw = (idx_raw + 1.0) / 2.0 * (resolution - 1)
+    idx = idx_raw.astype(int)
+    idx[:, 0] = (resolution - 1) - idx[:, 0]  # flip RA
+    idx = np.clip(idx, 0, resolution - 1)
+
+    grid   = np.zeros((resolution, resolution, resolution), dtype=np.float32)
+    counts = np.zeros_like(grid)
+    np.add.at(grid,   (idx[:,2], idx[:,1], idx[:,0]), val)
+    np.add.at(counts, (idx[:,2], idx[:,1], idx[:,0]), 1)
+    mask = counts > 0
+    grid[mask] /= counts[mask]
+
+    # Normalizza in [0, 1] preservando il segno
+    # 0.0 = max blueshift, 0.5 = gas fermo, 1.0 = max redshift
+    vmin, vmax = grid[mask].min(), grid[mask].max()
+    grid[mask] = (grid[mask] - vmin) / (vmax - vmin)
+    # voxel vuoti restano 0.0 — nel C++ già gestiti con `if (vel > 0.f)`
+
+    return grid.astype('<f4')
+
 density = voxelize("fits/3dmap_XYZflux.fits", resolution=512) #calling the function we have defined
 nii_ha    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=512) #calling the function we have defined
 sii_ha    = voxelize("fits/3dmap_XYZsii_ha.fits", resolution=512) #calling the function we have defined
 sii_sii    = voxelize("fits/3dmap_XYZsii_sii.fits", resolution=512) #calling the function we have defined
-vel    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=512) #calling the function we have defined
+vel    = voxelize_vel("fits/3dmap_XYZvel.fits", resolution=512) #calling the function we have defined
 
 
 os.makedirs("bin_512/", exist_ok=True)

@@ -532,7 +532,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 	float sigma_s = 0.0; // scattering trascurabile
 	float sigma_t = sigma_a + sigma_s;
 	float g = 0;
-	vec3 synchColor{0.7, 0.9, 1.0};
+	vec3 synchColor{0.15f, 0.55f, 0.85f};
 	// uint8_t d = 2; // "probabilità" per la Russian Roulette
 
 	size_t numSteps = std::ceil((tMax - tMin) / stepSize); // numero di passi
@@ -558,7 +558,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 		float sii_sii = lookup(siiSiiGrid, samplePos);
 		float vel = lookup(velGrid, samplePos);
 		float syn = lookup(synch, samplePos);
-		syn = pow(syn, 0.5); //to make visible also low values
+		syn = pow(syn, 1.5); //compress high values to concentrate contribute in high density zones
 
 		// debug una volta sola — conta quanti voxel hanno nii_ha > 0.3
 		if (density > 0.01f) {
@@ -580,7 +580,8 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 		if (Tvol < 1e-4f) break; 
 
 		Lvol += emColor * density * emissivity * Tvol * stride; // contributo di emissione
-		Lvol += synchColor * syn * emissivity * 0.15 * Tvol * stride;
+		if (syn > 0.02f) // ignora il rumore di fondo
+    		Lvol += synchColor * syn * emissivity * 0.04 * Tvol * stride;
 		/*
 		// In-scattering
 		float tlMin, tlMax; 
@@ -632,7 +633,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 // Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
 // La versione sulla luminanza è fisicamente più corretta di applicarlo canale per canale: si calcola quanto è brillante il pixel complessivamente,e si scala tutti e tre i canali dello stesso fattore. 
 // Così i rapporti di colore tra R, G e B rimangono invariati — un pixel arancio rimane arancio, diventa solo meno intenso. Il Reinhard per canale invece avvicina tutti i canali a valori simili, desaturando l'immagine.
-vec3 reinhard(vec3 c, float exposure = 0.9f)
+vec3 reinhard(vec3 c, float exposure = 1.2f)
 {
 	c.x *= exposure; c.y *= exposure; c.z *= exposure; // per avere colori più saturi
 	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; // (coefficienti 0.2126/0.7152/0.0722, che sono i pesi percettivi CIE dello spazio sRGB)
