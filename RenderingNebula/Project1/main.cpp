@@ -1,6 +1,8 @@
 ﻿#define _USE_MATH_DEFINES
 #define _CRT_SECURE_NO_WARNINGS
 
+#pragma warning(disable : 4146) // Spegne il fastidioso errore C4146 di Visual Studio
+
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -16,6 +18,12 @@
 
 #include <atomic> 
 #include <omp.h>
+
+#include <nanovdb/NanoVDB.h>
+#include <nanovdb/io/IO.h>
+#include <nanovdb/math/SampleFromVoxels.h>
+#include <nanovdb/math/HDDA.h>
+#include <nanovdb/math/Ray.h>
 
 //debug
 std::atomic<int> highNii{0};
@@ -133,22 +141,22 @@ vec3 transformPoint(const Matrix& m, const vec3& p) // per trasformare punti
 
 constexpr vec3 background_color{ 0,0,0 };
 
-struct Grid 
-{
-	size_t baseResolution = 512; // size_t è un tipo intero senza segno, perfetto per dimensioni e indici. 1
-	std::unique_ptr<float[]> densityData; // è l'array che conterrà tutti i valori di densità. Non lo inizializziamo qui — verrà riempito quando carichiamo il file binario.
-	vec3 bounds[2]{ vec3{-30,-30,-30,}, vec3{30,30,30} }; //i due punti definiscono il bounding box della griglia nello spazio 3D
-
-	float operator() (const int& xi, const int& yi, const int& zi) const // Serve per leggere la densità di un voxel dato il suo indice
-	{
-		// il controllo serve perché quando faremo l'interpolazione potremmo chiedere voxel appena fuori dai bordi — in quel caso restituiamo 0 (nessuna densità).
-		if (xi<0 || xi > baseResolution - 1 ||
-			yi < 0 || yi > baseResolution - 1 ||
-			zi < 0 || zi > baseResolution - 1) 
-			return 0;
-
-		return densityData[(zi * baseResolution + yi) * baseResolution + xi];	}
-};
+//struct Grid 
+//{
+//	size_t baseResolution = 512; // size_t è un tipo intero senza segno, perfetto per dimensioni e indici. 1
+//	std::unique_ptr<float[]> densityData; // è l'array che conterrà tutti i valori di densità. Non lo inizializziamo qui — verrà riempito quando carichiamo il file binario.
+//	vec3 bounds[2]{ vec3{-30,-30,-30,}, vec3{30,30,30} }; //i due punti definiscono il bounding box della griglia nello spazio 3D
+//
+//	float operator() (const int& xi, const int& yi, const int& zi) const // Serve per leggere la densità di un voxel dato il suo indice
+//	{
+//		// il controllo serve perché quando faremo l'interpolazione potremmo chiedere voxel appena fuori dai bordi — in quel caso restituiamo 0 (nessuna densità).
+//		if (xi<0 || xi > baseResolution - 1 ||
+//			yi < 0 || yi > baseResolution - 1 ||
+//			zi < 0 || zi > baseResolution - 1) 
+//			return 0;
+//
+//		return densityData[(zi * baseResolution + yi) * baseResolution + xi];	}
+//};
 
 struct Ray 
 { 
@@ -319,48 +327,48 @@ vec3 starContribution(const Ray& ray, const std::vector<Star>& stars, float star
 };
 
 
-bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tmax)
-{
-	// Per sapere quale bound usare come entrata e quale come uscita, 
-	// usiamo ray.sign che ci dice il segno della direzione del raggio.
-	// Se il raggio va in direzione positiva (sign=0), entra da bounds[0] ed esce da bounds[1].
-	// Se va in direzione negativa (sign=1), è il contrario.
-
-	// calcolo prima le differenze
-	float a, b, c, d, e, f;
-	a = bounds[    ray.sign[0]].x - ray.orig.x;
-	b = bounds[1 - ray.sign[0]].x - ray.orig.x;
-	c = bounds[    ray.sign[1]].y - ray.orig.y;
-	d = bounds[1 - ray.sign[1]].y - ray.orig.y;
-
-	// Usiamo invDir invece di dividere per dir per evitare divisioni per zero
-	// gestisce il caso speciale in cui il raggio è esattamente parallelo a una faccia del box (direzione zero):
-	// se la differenza a è zero, il risultato è 0, altrimenti moltiplica. Evita il caso 0 * infinito che darebbe NaN.
-	float x0 = a == 0 ? 0 : a * ray.invDir.x; // operatore ternario      condizione ? valore_se_vera : valore_se_falsa
-	float x1 = b == 0 ? 0 : b * ray.invDir.x;
-	float y0 = c == 0 ? 0 : c * ray.invDir.y;
-	float y1 = d == 0 ? 0 : d * ray.invDir.y;
-
-	if ((x0 > y1 || y0 > x1)) return false; // controllo di interesezione tra i primi due slab
-
-	//  Calcoliamo tmin e tmax finali — prima per X e Y, poi aggiornandoli con Z:
-	tmin = (y0 > x0) ? y0 : x0;
-	tmax = (y1 < x1) ? y1 : x1;
-
-
-	e = bounds[    ray.sign[2]].z - ray.orig.z;
-	f = bounds[1 - ray.sign[2]].z - ray.orig.z;
-
-	float z0 = e == 0 ? 0 : e * ray.invDir.z;
-	float z1 = f == 0 ? 0 : f * ray.invDir.z;
-
-	if ((tmin > z1) || (z0 > tmax)) return false;
-
-	tmin = std::max(z0, tmin);
-	tmax = std::min(z1, tmax);
-
-	return true;
-}
+//bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tmax)
+//{
+//	// Per sapere quale bound usare come entrata e quale come uscita, 
+//	// usiamo ray.sign che ci dice il segno della direzione del raggio.
+//	// Se il raggio va in direzione positiva (sign=0), entra da bounds[0] ed esce da bounds[1].
+//	// Se va in direzione negativa (sign=1), è il contrario.
+//
+//	// calcolo prima le differenze
+//	float a, b, c, d, e, f;
+//	a = bounds[    ray.sign[0]].x - ray.orig.x;
+//	b = bounds[1 - ray.sign[0]].x - ray.orig.x;
+//	c = bounds[    ray.sign[1]].y - ray.orig.y;
+//	d = bounds[1 - ray.sign[1]].y - ray.orig.y;
+//
+//	// Usiamo invDir invece di dividere per dir per evitare divisioni per zero
+//	// gestisce il caso speciale in cui il raggio è esattamente parallelo a una faccia del box (direzione zero):
+//	// se la differenza a è zero, il risultato è 0, altrimenti moltiplica. Evita il caso 0 * infinito che darebbe NaN.
+//	float x0 = a == 0 ? 0 : a * ray.invDir.x; // operatore ternario      condizione ? valore_se_vera : valore_se_falsa
+//	float x1 = b == 0 ? 0 : b * ray.invDir.x;
+//	float y0 = c == 0 ? 0 : c * ray.invDir.y;
+//	float y1 = d == 0 ? 0 : d * ray.invDir.y;
+//
+//	if ((x0 > y1 || y0 > x1)) return false; // controllo di interesezione tra i primi due slab
+//
+//	//  Calcoliamo tmin e tmax finali — prima per X e Y, poi aggiornandoli con Z:
+//	tmin = (y0 > x0) ? y0 : x0;
+//	tmax = (y1 < x1) ? y1 : x1;
+//
+//
+//	e = bounds[    ray.sign[2]].z - ray.orig.z;
+//	f = bounds[1 - ray.sign[2]].z - ray.orig.z;
+//
+//	float z0 = e == 0 ? 0 : e * ray.invDir.z;
+//	float z1 = f == 0 ? 0 : f * ray.invDir.z;
+//
+//	if ((tmin > z1) || (z0 > tmax)) return false;
+//
+//	tmin = std::max(z0, tmin);
+//	tmax = std::min(z1, tmax);
+//
+//	return true;
+//}
 
 
 // la funzione lookup quindi mi fornisce il valore della densità. per farlo trasforma il punto in cui siamo in coordinate locali, poi voxel, 
@@ -372,43 +380,53 @@ bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tmax)
 // 5. xi, yi, zi → (37, 89, 12) — indici interi del voxel in cui siamo
 // 6. Interpolazione trilineare → guarda gli 8 voxel agli angoli del cubo che ci circonda, li mescola in base alla distanza, restituisce un valore continuo e morbido
 
-float lookup(const Grid& grid, const vec3& p)
+//float lookup(const Grid& grid, const vec3& p)
+//{
+//	vec3 gridSize = (grid.bounds[1] - grid.bounds[0]);
+//	vec3 pLocal = (p - grid.bounds[0]) / gridSize; // trovo le coordinate locali rispetto alla griglia
+//	vec3 pVoxel = pLocal * grid.baseResolution; // trasformiamo in coordinate voxel (index tuple ma ancora float quindi non identificano un voxel preciso)
+//
+//	// Ora dobbiamo trovare il voxel in cui siamo, cioè convertire pVoxel in indici interi.
+//	// il valore dei voxel è però memorizzato al centro, non al bordo. Quando converti il punto in voxel space con il floor, ottieni l'indice del voxel. 
+//	// Ma il floor ti porta all'angolo del voxel, non al suo centro. Sottraendo 0.5 sposti il sistema di riferimento in modo che floor ti dia il voxel il cui centro è più vicino al tuo punto.
+//	vec3 pLattice = vec3{ pVoxel.x - 0.5f, pVoxel.y - 0.5f, pVoxel.z - 0.5f };
+//
+//	int xi = static_cast<int>(std::floor(pLattice.x)); // cast per andare da float a int
+//	int yi = static_cast<int>(std::floor(pLattice.y));
+//	int zi = static_cast<int>(std::floor(pLattice.z));
+//
+//	//interpolazione trilineare
+//	float value = 0;
+//	// for annidati che vanno da 0 a 1, uno per ogni asse. Per ogni combinazione (i, j, k) 
+//	// calcola un peso proporzionale alla distanza dal voxel e lo moltiplica per la densità di quel voxel.
+//	for (int i = 0; i < 2; i++) {
+//		for (int j = 0; j < 2; j++) {
+//			for (int k = 0; k < 2; k++) {
+//				//pesi
+//				float wx = 1 - std::abs(pLattice.x - (xi + i));
+//				float wy = 1 - std::abs(pLattice.y - (yi + j));
+//				float wz = 1 - std::abs(pLattice.z - (zi + k));
+//
+//				// chiama l'operatore () della Grid che avevamo scritto all'inizio — legge la densità del voxel (xi+i, yi+j, zi+k) e la accumula pesata.
+//				value += wx * wy * wz * grid(xi + i, yi + j, zi + k);
+//			}
+//		}
+//	}
+//
+//	return value;
+//}
+
+// Con NanoVDB, tutta questa matematica complessa è già ottimizzata al massimo dentro una classe chiamata Sampler (nanovdb::SampleFromVoxels).
+// La funzione per campionare il volume con Nanovdb:
+inline float sampleGrid(const nanovdb::FloatGrid* grid, const vec3& p, nanovdb::math::SampleFromVoxels<nanovdb::FloatGrid::TreeType, 1, false>& sampler)
 {
-	vec3 gridSize = (grid.bounds[1] - grid.bounds[0]);
-	vec3 pLocal = (p - grid.bounds[0]) / gridSize; // trovo le coordinate locali rispetto alla griglia
-	vec3 pVoxel = pLocal * grid.baseResolution; // trasformiamo in coordinate voxel (index tuple ma ancora float quindi non identificano un voxel preciso)
+	if (!grid) return 0.0f;
 
-	// Ora dobbiamo trovare il voxel in cui siamo, cioè convertire pVoxel in indici interi.
-	// il valore dei voxel è però memorizzato al centro, non al bordo. Quando converti il punto in voxel space con il floor, ottieni l'indice del voxel. 
-	// Ma il floor ti porta all'angolo del voxel, non al suo centro. Sottraendo 0.5 sposti il sistema di riferimento in modo che floor ti dia il voxel il cui centro è più vicino al tuo punto.
-	vec3 pLattice = vec3{ pVoxel.x - 0.5f, pVoxel.y - 0.5f, pVoxel.z - 0.5f };
+	nanovdb::Vec3f nvWorldPos(p.x, p.y, p.z); // converte il vec3 nel vettore nanovdb
+	nanovdb::Vec3f indexPos = grid->worldToIndexF(nvWorldPos); // // NanoVDB calcola istantaneamente dove si trova il punto all'interno dell'albero VDB
 
-	int xi = static_cast<int>(std::floor(pLattice.x)); // cast per andare da float a int
-	int yi = static_cast<int>(std::floor(pLattice.y));
-	int zi = static_cast<int>(std::floor(pLattice.z));
-
-	//interpolazione trilineare
-	float value = 0;
-	// for annidati che vanno da 0 a 1, uno per ogni asse. Per ogni combinazione (i, j, k) 
-	// calcola un peso proporzionale alla distanza dal voxel e lo moltiplica per la densità di quel voxel.
-	for (int i = 0; i < 2; i++) {
-		for (int j = 0; j < 2; j++) {
-			for (int k = 0; k < 2; k++) {
-				//pesi
-				float wx = 1 - std::abs(pLattice.x - (xi + i));
-				float wy = 1 - std::abs(pLattice.y - (yi + j));
-				float wz = 1 - std::abs(pLattice.z - (zi + k));
-
-				// chiama l'operatore () della Grid che avevamo scritto all'inizio — legge la densità del voxel (xi+i, yi+j, zi+k) e la accumula pesata.
-				value += wx * wy * wz * grid(xi + i, yi + j, zi + k);
-			}
-		}
-	}
-
-	return value;
+	return sampler(indexPos); // Il sampler legge i dati e fa l'interpolazione trilineare in automatico!
 }
-
-
 
 float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 {
@@ -420,94 +438,110 @@ float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 
 vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float vel)
 {
-	// Tutti i valori sono in [0,1] dopo log-stretch.
+	// Mappatura a falsi colori basata sui dati FITS disponibili
+	// (Martin et al. 2021, SITELLE/ORB).
 	//
-	// FISICA (dal paper Martin et al. 2021, Crab Nebula con SITELLE):
-	// - La ionizzazione è da shock del pulsar wind, NON da fotoionizzazione UV.
-	// - NII/Ha traccia lo stato di ionizzazione: basso = gas più ionizzato
-	//   (direttamente esposto al vento della pulsar), alto = ejecta più freddi
-	//   e densi nelle shell esterne.
-	// - SII/Ha traccia le regioni di shock: alto dove il fronte di espansione
-	//   comprime il gas termico contro la nebulosa di sincrotrone.
-	// - SII6716/SII6731 (sii_sii) è diagnostico della densità elettronica:
-	//   rapporto alto (~1.4) = gas rarefatto (~100 cm^-3),
+	// I dati disponibili sono RAPPORTI di righe di emissione, non intensità
+	// assolute. Tutti i valori sono normalizzati in [0,1] dopo log-stretch
+	// (normalizzazione lineare per vel).
+	//
+	// Range reali misurati a runtime sui voxel campionati:
+	//   nii_ha  = [0.0000, 0.5544]
+	//   sii_ha  = [0.0000, 0.6435]
+	//   vel     = [0.0003, 0.9878] — centro fisico a 0.5 (range simmetrico)
+	//
+	// NOTA sulla palette: la Hubble Palette standard (SHO) richiederebbe
+	// tre canali: SII→rosso, Hα→verde, OIII→blu. Nei dati SITELLE non sono
+	// presenti né Hα assoluto né OIII — solo i rapporti NII/Hα e SII/Hα.
+	// Si adotta quindi una palette alternativa fisicamente motivabile:
+	//
+	//   Hα implicito (nii_ha e sii_ha bassi) → blu/viola
+	//     — coerente con l'aspetto ottico reale della Crab a banda stretta,
+	//       dove le zone a bassa emissione di NII appaiono dominate dal
+	//       continuo e dall'emissione diffusa.
+	//   NII dominante (nii_ha alto) → rosso
+	//     — ejecta freddi e densi nella shell esterna (658 nm).
+	//   SII forte (sii_ha alto)     → arancio
+	//     — fronte di shock al bordo della nebulosa (671/673 nm).
+	//   SII6716/6731 (sii_sii)      → diagnostico densità elettronica,
+	//                                  modula saturazione (non ha colore proprio).
+	//   vel                         → Doppler shift cromatico sottile.
+	//
+	// NOTA: il sincrotrone della PWN non è presente nei FITS SITELLE.
+	// Andrà aggiunto come componente separata in futuro.
+	//
+	// FISICA dei rapporti (dal paper Martin et al. 2021):
+	// - NII/Ha: basso = gas più ionizzato, alto = ejecta freddi e densi.
+	// - SII/Ha: alto dove il fronte di espansione comprime il gas termico.
+	// - SII6716/SII6731: rapporto alto (~1.4) = gas rarefatto (~100 cm^-3),
 	//   rapporto basso (~0.4) = gas denso (~10000 cm^-3).
-	//   Nel bin normalizzato: valore alto = denso, valore basso = rarefatto.
-	//   (la normalizzazione inverte: il minimo fisico 0.4 diventa 0 nel bin)
+	//   Dopo normalizzazione: valore basso nel bin = gas denso
+	//   (il minimo fisico 0.4 diventa 0 nel bin).
 
-	// Colori ancorati alla fisica della Crab:
-	// gas ionizzato dal pulsar wind → tende al blu-violaceo (come nelle
-	// immagini ottiche HST della Crab dove la PWN è blu per sincrotrone)
-	vec3 pwn    { 0.3f,  0.5f,  1.0f  }; // blu — gas ionizzato dal pulsar wind (basso NII/Ha)
+	vec3 ha_color  { 0.05f, 0.2f,  0.85f  }; // Hα implicito → blu/viola
+	vec3 nii_color { 1.0f,  0.1f,  0.0f  }; // NII → rosso (658 nm)
+	vec3 sii_color { 1.0f,  0.6f,  0.0f  }; // SII → arancio (671/673 nm)
 
-	// ejecta termici nella shell → rosso-arancio (dominati da NII, SII)
-	vec3 ejecta { 0.9f,  0.15f, 0.02f };  // rosso — ejecta densi, basso grado ionizzazione
-
-	// zona di shock al fronte di espansione → arancio caldo (alto SII/Ha)
-	// fisicamente: interfaccia tra nebulosa sincrotrone e gas termico
-	// è dove Rayleigh-Taylor instabilities creano i filamenti (Hester 1996, citato nel paper)
-	vec3 shock  { 1.0f,  0.5f,  0.0f  }; // arancio — fronte di shock
-
-	// gas denso (basso sii_sii) → più opaco, tende al rosso scuro
-	// gas rarefatto (alto sii_sii) → più trasparente, tende al blu
-	// NON usiamo "bianco caldo" perché non c'è una stella centrale calda —
-	// il centro della Crab è dominato dalla PWN non da emissione termica densa.
-	vec3 dense  { 0.6f,  0.08f, 0.02f }; // rosso scuro — filamenti ad alta densità elettronica
-
-	// --- Blend 1: NII/Ha → ionizzazione ---
-	// basso NII/Ha (vicino al pulsar wind) = pwn (blu)
-	// alto NII/Ha (ejecta esterni) = ejecta (rosso)
-	// dopo — stile HST, density come peso aggiuntivo:
-	float t_nii = std::clamp(nii_ha * 1.5f + density * 0.8f, 0.f, 1.f);
+	// --- Blend 1: NII/Ha → mix Hα implicito / NII ---
+	// t_nii=0: NII assente, Hα domina → blu/viola
+	// t_nii=1: NII domina → rosso
+	// Fattore 3.5: porta il range reale [0, 0.55] a saturare correttamente
+	// in [0,1] senza che il blu/viola schiacci i filamenti rossi.
+	float t_nii = std::clamp(nii_ha * 5.0f, 0.f, 1.f);  
 	vec3 baseColor{
-		pwn.x * (1.f - t_nii) + ejecta.x * t_nii,
-		pwn.y * (1.f - t_nii) + ejecta.y * t_nii,
-		pwn.z * (1.f - t_nii) + ejecta.z * t_nii
+		ha_color.x * (1.f - t_nii) + nii_color.x * t_nii,
+		ha_color.y * (1.f - t_nii) + nii_color.y * t_nii,
+		ha_color.z * (1.f - t_nii) + nii_color.z * t_nii
 	};
 
-	// --- Blend 2: SII/Ha → shock ---
-	// alto SII/Ha = zona di shock al fronte di espansione
-	float t_sii = std::clamp(sii_ha * 1.5f, 0.f, 1.f);
-	baseColor.x = baseColor.x * (1.f - t_sii) + shock.x * t_sii;
-	baseColor.y = baseColor.y * (1.f - t_sii) + shock.y * t_sii;
-	baseColor.z = baseColor.z * (1.f - t_sii) + shock.z * t_sii;
+	// --- Blend 2: SII/Ha → spinge verso arancio ---
+	// alto SII/Ha = fronte di shock al bordo della nebulosa.
+	// Fattore 3.0: porta il range reale [0, 0.64] a coprire bene [0,1].
+	float t_sii = std::clamp(sii_ha * 4.5f, 0.f, 1.f);  
+	baseColor.x = baseColor.x * (1.f - t_sii) + sii_color.x * t_sii;
+	baseColor.y = baseColor.y * (1.f - t_sii) + sii_color.y * t_sii;
+	baseColor.z = baseColor.z * (1.f - t_sii) + sii_color.z * t_sii;
 
 	// --- Blend 3: SII6716/SII6731 → densità elettronica ---
-	// sii_sii basso nel bin = rapporto fisico basso = alta densità elettronica
-	// usiamo (1 - sii_sii) per avere t_dense alto dove il gas è denso
-	float t_dense = 0.f;
-	if (density > 0.f && sii_sii > 0.05f)  // soglia: esclude voxel senza dati reali
-		t_dense = std::clamp((1.f - sii_sii) * 1.5f, 0.f, 1.f);
-	baseColor.x = baseColor.x * (1.f - t_dense) + dense.x * t_dense;
-	baseColor.y = baseColor.y * (1.f - t_dense) + dense.y * t_dense;
-	baseColor.z = baseColor.z * (1.f - t_dense) + dense.z * t_dense;
+	// Non è una riga spettrale con un colore proprio — è un rapporto
+	// diagnostico che indica quanto è compresso il gas.
+	// Lo usiamo per modulare la saturazione del colore base:
+	//   gas denso   (sii_sii basso → t_dense alto) → desatura, tende al scuro
+	//   gas rarefatto (sii_sii alto → t_dense basso) → mantiene saturazione
+	// La soglia sii_sii > 0.05 esclude i voxel senza misura SII6716/6731
+	// (sii_sii=0 significa assenza di dato, non gas denso).
+	if (density > 0.f && sii_sii > 0.05f) {
+		float t_dense = std::clamp((1.f - sii_sii) * 0.4f, 0.f, 1.f);
+		baseColor.x *= (1.f - t_dense * 0.3f); // desatura R leggermente
+		baseColor.y *= (1.f - t_dense * 0.5f); // desatura G più forte
+		baseColor.z *= (1.f - t_dense * 0.2f); // desatura B poco
+	}
 
-	// --- Blend 4: velocità radiale → Doppler shift del colore ---
+	// --- Blend 4: velocità radiale → Doppler shift cromatico ---
 	//
-	// FISICA: la nebula si espande a ±1500 km/s. Le righe di emissione
-	// delle zone che si allontanano da noi (redshift) sono spostate
+	// FISICA: la nebulosa si espande a ±1500 km/s. Le righe di emissione
+	// delle zone che si allontanano da noi (redshift) appaiono spostate
 	// verso il rosso; quelle che si avvicinano (blueshift) verso il blu.
-	// Questo è esattamente il meccanismo usato nel paper per ricostruire
-	// la struttura 3D: ogni filamento ha una Z ricavata dalla sua velocità.
+	// Questo è il meccanismo usato da SITELLE/ORB per ricostruire la
+	// struttura 3D: ogni filamento ha una coordinata Z ricavata dalla
+	// sua velocità radiale misurata.
 	//
-	// Nel bin: 0.0 = voxel vuoto (nessun dato)
-	//          ~0.46 = gas fermo (vel ≈ 0 km/s)
-	//          > 0.46 = redshift (si allontana)
-	//          < 0.46 = blueshift (si avvicina)
+	// Nel bin normalizzato (normalizzazione lineare su range fisico):
+	//   0.0   = voxel vuoto (nessun dato)
+	//   0.5   = gas fermo (vel ≈ 0 km/s) — range misurato [0.0003, 0.9878],
+	//           quasi simmetrico attorno a 0.5.
+	//   > 0.5 = redshift (gas che si allontana da noi)
+	//   < 0.5 = blueshift (gas che si avvicina a noi)
 	//
-	// Usiamo 0.46 come zero fisico (valore misurato dalla voxelizzazione).
-	// La soglia density > 0 esclude i voxel vuoti dove vel=0.0 non ha
-	// significato fisico — senza di essa tutto il vuoto sembrerebbe gas fermo.
-
+	// La soglia density > 0 && vel > 0 esclude i voxel vuoti dove vel=0.0
+	// non ha significato fisico.
+	// strength = 0.15 è volutamente sottile: il Doppler è un effetto
+	// secondario rispetto alla composizione chimica (NII, SII).
 	if (density > 0.f && vel > 0.f) {
-		// doppler in [-1, +1]: negativo = blueshift, positivo = redshift
-		float doppler = (vel - 0.477f) * 2.f;
-		float strength = 0.25f; // quanto il Doppler modifica il colore (0=niente, 1=totale)
-
-		// redshift: spinge verso il rosso, toglie blu
-		// blueshift: spinge verso il blu, toglie rosso
-		baseColor.x += doppler * strength;        // R: sale con redshift
-		baseColor.z -= doppler * strength;        // B: sale con blueshift
+		float doppler  = (vel - 0.5f) * 2.f; // in [-1, +1]
+		float strength = 0.15f;
+		baseColor.x += doppler * strength; // R: sale con redshift
+		baseColor.z -= doppler * strength; // B: sale con blueshift
 		baseColor.x = std::clamp(baseColor.x, 0.f, 1.f);
 		baseColor.z = std::clamp(baseColor.z, 0.f, 1.f);
 	}
@@ -517,106 +551,193 @@ vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float
 
 // L è la radianza raccolta (luminanza del volume, cioè il colore finale)
 // T è la trasmittanza finale (la transparency)
+// USANDO NANOVDB USO LA PROSSIMA FUNZIONE
+//void integrate(const Ray& ray, const float& tMin, const float& tMax,
+//				vec3& L, float& T,
+//				const Grid& grid, const Grid& niiGrid, const Grid& siiGrid,
+//				const Grid& siiSiiGrid, const Grid& velGrid,
+//				std::default_random_engine& rng,
+//				std::uniform_real_distribution<float>& dist) {
+//	float stepSize = 0.04;
+//	float sigma_a = 0.4; // assorbimento
+//	float sigma_s = 0.0; // scattering trascurabile
+//	float sigma_t = sigma_a + sigma_s;
+//	float g = 0;
+//	// uint8_t d = 2; // "probabilità" per la Russian Roulette
+//
+//	size_t numSteps = std::ceil((tMax - tMin) / stepSize); // numero di passi
+//	float stride = (tMax - tMin) / numSteps; // ricalcolo lo step_size giusto per non strabordare
+//
+//	// luce (togliendo l'in -scattering, la luce è solo quella emessa dal volume, non c'è illuminazione diretta da fonti esterne)
+//	// vec3 light_dir{ -0.315798, 0.719361, 0.618702 };
+//	// vec3 light_color{ 5, 5, 5 };
+//
+//	float Tvol = 1; //transparency
+//	vec3 Lvol{ 0,0,0 }; //colore finale
+//	float shadowOpacity = 1; // parametro che controlla quanto le ombre sono intense.
+//
+//	for (size_t n = 0; n < numSteps; n++) 
+//	{
+//		float t = tMin + stride * (n + dist(rng)); // jitter  dist(rng) estrae un float casuale in [0,1) ad ogni step.
+//		t = std::min(t, tMax); // clamp garantisce che t non superi mai tMax,
+//		vec3 samplePos = ray(t); // l'operatore che avevo creato
+//
+//		float density = lookup(grid,    samplePos);
+//		float nii_ha = lookup(niiGrid, samplePos);
+//		float sii_ha = lookup(siiGrid, samplePos);
+//		float sii_sii = lookup(siiSiiGrid, samplePos);
+//		float vel = lookup(velGrid, samplePos);
+//
+//		// debug una volta sola — conta quanti voxel hanno nii_ha > 0.3
+//		if (density > 0.01f) {
+//			totalNonZero++;
+//			if (nii_ha > 0.3f) highNii++;
+//		}
+//		
+//		float emissivity = 7;
+//		
+//		vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
+//
+//		float Tsample = exp(-density * stride * sigma_t); // attenuazione del sample
+//		Tvol *= Tsample; // aggiorna trasparenza
+//
+//		// Non introduce bias fisico rilevante per la Crab perché i filamenti non sono mai abbastanza densi da rendere il volume completamente opaco in modo uniforme
+//		// stai lavorando con densità massima ~0.72 e sigma_t = 0.42. Il contributo oltre quella soglia è inferiore a 0.01% della radianza finale. 
+//		// La Russian Roulette è overkill qui — è utile per materiali con forte scattering multiplo, non per emissione quasi pura.
+//		if (Tvol < 1e-4f) break; 
+//
+//		Lvol += emColor * density * emissivity * Tvol * stride; // contributo di emissione
+//
+//		/*
+//		// In-scattering
+//		float tlMin, tlMax; 
+//		Ray lightRay(samplePos, light_dir);
+//		// ha senso calcolare solo se c'è densità && il raggio di luce colpisce il box && il box è davanti a noi, non dietro
+//		if (density > 0 && raybox(lightRay, grid.bounds, tlMin, tlMax) && tlMax > 0 )
+//		{
+//
+//			size_t numStepsLight = std::min((size_t)std::ceil(tlMax / stepSize), (size_t)16); // numero di passi, l'avevo modificato per la nebula crab ma in modo sbagliato
+//			float strideLight= tlMax / numStepsLight; // ricalcolo lo step_size giusto per non strabordare
+//
+//			float tau = 0; // spessore ottico: somma di tutte le densità
+//			for (size_t n1 = 0; n1 < numStepsLight; ++n1)
+//			{
+//				float t1 = strideLight * (n1 + 0.5); // Usiamo $+0.5$ per campionare esattamente in mezzo al passo, invece di usare il rumore casuale (è più stabile per le ombre).
+//				vec3 samplePosScatt = lightRay(t1);
+//				tau += lookup(grid, samplePosScatt);
+//			}
+//
+//			float light_attenuation = exp(-tau * strideLight * sigma_t * shadowOpacity);
+//			Lvol += light_color * light_attenuation * density * sigma_s * phaseHG(-ray.dir, light_dir, g) * Tvol * stride;
+//
+//		}
+//		*/
+//
+//
+//
+//
+//		//if (Tvol < 1e-3)
+//		//{
+//		//	if (distribution(generator) > 1.0f / d)
+//		//	{
+//		//		break;
+//		//	}
+//		//	else 
+//		//	{
+//		//		Tvol *= d;
+//		//	}
+//		//}
+//
+//	}
+//
+//	L = Lvol;
+//	T = Tvol;
+//}
+
 void integrate(const Ray& ray, const float& tMin, const float& tMax,
-				vec3& L, float& T,
-				const Grid& grid, const Grid& niiGrid, const Grid& siiGrid,
-				const Grid& siiSiiGrid, const Grid& velGrid,
-				std::default_random_engine& rng,
-				std::uniform_real_distribution<float>& dist) {
-	float stepSize = 0.04;
-	float sigma_a = 0.4; // assorbimento
-	float sigma_s = 0.0; // scattering trascurabile
-	float sigma_t = sigma_a + sigma_s;
-	float g = 0;
-	// uint8_t d = 2; // "probabilità" per la Russian Roulette
+	vec3& L, float& T,
+	const nanovdb::FloatGrid* densityGrid,
+	const nanovdb::FloatGrid* niiGrid,
+	const nanovdb::FloatGrid* siiGrid,
+	const nanovdb::FloatGrid* siiSiiGrid,
+	const nanovdb::FloatGrid* velGrid,
+	std::default_random_engine& rng,
+	std::uniform_real_distribution<float>& dist)
+{
+	float sigma_t  = 0.45f;
+	float emissivity = 12.f;
+	T = 1.0f;
+	L = vec3{ 0.f, 0.f, 0.f };
 
-	size_t numSteps = std::ceil((tMax - tMin) / stepSize); // numero di passi
-	float stride = (tMax - tMin) / numSteps; // ricalcolo lo step_size giusto per non strabordare
+	// Costruiamo il raggio NanoVDB in WORLD SPACE
+	nanovdb::Vec3f nvOrig(ray.orig.x, ray.orig.y, ray.orig.z);
+	nanovdb::Vec3f nvDir (ray.dir.x,  ray.dir.y,  ray.dir.z);
+	nanovdb::math::Ray<float> nvRay(nvOrig, nvDir, tMin, tMax);
 
-	// luce (togliendo l'in -scattering, la luce è solo quella emessa dal volume, non c'è illuminazione diretta da fonti esterne)
-	// vec3 light_dir{ -0.315798, 0.719361, 0.618702 };
-	// vec3 light_color{ 5, 5, 5 };
+	// Convertiamo in INDEX SPACE — qui t è scalato diversamente
+	nanovdb::math::Ray<float> idxRay = nvRay.worldToIndexF(*densityGrid);
 
-	float Tvol = 1; //transparency
-	vec3 Lvol{ 0,0,0 }; //colore finale
-	float shadowOpacity = 1; // parametro che controlla quanto le ombre sono intense.
+	// Clipping sulla bbox della griglia in index space
+	float t0 = idxRay.t0();
+	float t1 = idxRay.t1();
+	if (!idxRay.intersects(densityGrid->indexBBox(), t0, t1))
+		return;
 
-	for (size_t n = 0; n < numSteps; n++) 
-	{
-		float t = tMin + stride * (n + dist(rng)); // jitter  dist(rng) estrae un float casuale in [0,1) ad ogni step.
-		t = std::min(t, tMax); // clamp garantisce che t non superi mai tMax,
-		vec3 samplePos = ray(t); // l'operatore che avevo creato
+	// Sampler — uno per griglia, thread-local perché siamo dentro il parallel for
+	using SamplerT = nanovdb::math::SampleFromVoxels<nanovdb::FloatGrid::TreeType, 1, false>;
+	SamplerT densitySampler(densityGrid->tree());
+	SamplerT niiSampler    (niiGrid->tree());
+	SamplerT siiSampler    (siiGrid->tree());
+	SamplerT siiSiiSampler (siiSiiGrid->tree());
+	SamplerT velSampler    (velGrid->tree());
 
-		float density = lookup(grid,    samplePos);
-		float nii_ha = lookup(niiGrid, samplePos);
-		float sii_ha = lookup(siiGrid, samplePos);
-		float sii_sii = lookup(siiSiiGrid, samplePos);
-		float vel = lookup(velGrid, samplePos);
+	// stepSize in INDEX SPACE (1 voxel per step è un buon punto di partenza)
+	float stepSize = 1.0f;
+	size_t numSteps = std::max((size_t)1, (size_t)std::ceil((t1 - t0) / stepSize));
+	float stride = (t1 - t0) / numSteps;
 
-		// debug una volta sola — conta quanti voxel hanno nii_ha > 0.3
+	for (size_t n = 0; n < numSteps; n++) {
+		float t = t0 + stride * (n + dist(rng));
+		t = std::min(t, t1);
+
+		// Posizione in INDEX SPACE — la passiamo direttamente al sampler
+		nanovdb::Vec3f idxPos = idxRay(t);
+
+		float density = densitySampler(idxPos);
+
 		if (density > 0.01f) {
-			totalNonZero++;
-			if (nii_ha > 0.3f) highNii++;
+			float nii_ha  = niiSampler(idxPos);
+			float sii_ha  = siiSampler(idxPos);
+			float sii_sii = siiSiiSampler(idxPos);
+			float vel     = velSampler(idxPos);
+
+			vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
+
+			// stride in index space — lo convertiamo in world space per
+			// avere unità fisiche coerenti con sigma_t
+			float worldStride = stride * densityGrid->voxelSize()[0];
+
+			float Tsample = exp(-density * worldStride * sigma_t);
+			T *= Tsample;
+			if (T < 1e-4f) return;
+
+			L += emColor * density * emissivity * T * worldStride;
+
+			// dentro if (density > 0.01f)
+			static std::atomic<int> dbgCount{0};
+			static float niiMin=1,niiMax=0,siiMin=1,siiMax=0,velMin=1,velMax=0;
+			int cnt = dbgCount.fetch_add(1);
+			if (nii_ha < niiMin) niiMin = nii_ha;
+			if (nii_ha > niiMax) niiMax = nii_ha;
+			if (sii_ha < siiMin) siiMin = sii_ha;
+			if (sii_ha > siiMax) siiMax = sii_ha;
+			if (vel < velMin) velMin = vel;
+			if (vel > velMax) velMax = vel;
+			if (cnt == 500000)
+				fprintf(stderr, "nii=[%.4f,%.4f] sii=[%.4f,%.4f] vel=[%.4f,%.4f]\n",
+					niiMin,niiMax,siiMin,siiMax,velMin,velMax);
 		}
-		
-		float emissivity = 7;
-		
-		vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
-
-		float Tsample = exp(-density * stride * sigma_t); // attenuazione del sample
-		Tvol *= Tsample; // aggiorna trasparenza
-
-		// Non introduce bias fisico rilevante per la Crab perché i filamenti non sono mai abbastanza densi da rendere il volume completamente opaco in modo uniforme
-		// stai lavorando con densità massima ~0.72 e sigma_t = 0.42. Il contributo oltre quella soglia è inferiore a 0.01% della radianza finale. 
-		// La Russian Roulette è overkill qui — è utile per materiali con forte scattering multiplo, non per emissione quasi pura.
-		if (Tvol < 1e-4f) break; 
-
-		Lvol += emColor * density * emissivity * Tvol * stride; // contributo di emissione
-
-		/*
-		// In-scattering
-		float tlMin, tlMax; 
-		Ray lightRay(samplePos, light_dir);
-		// ha senso calcolare solo se c'è densità && il raggio di luce colpisce il box && il box è davanti a noi, non dietro
-		if (density > 0 && raybox(lightRay, grid.bounds, tlMin, tlMax) && tlMax > 0 )
-		{
-
-			size_t numStepsLight = std::min((size_t)std::ceil(tlMax / stepSize), (size_t)16); // numero di passi, l'avevo modificato per la nebula crab ma in modo sbagliato
-			float strideLight= tlMax / numStepsLight; // ricalcolo lo step_size giusto per non strabordare
-
-			float tau = 0; // spessore ottico: somma di tutte le densità
-			for (size_t n1 = 0; n1 < numStepsLight; ++n1)
-			{
-				float t1 = strideLight * (n1 + 0.5); // Usiamo $+0.5$ per campionare esattamente in mezzo al passo, invece di usare il rumore casuale (è più stabile per le ombre).
-				vec3 samplePosScatt = lightRay(t1);
-				tau += lookup(grid, samplePosScatt);
-			}
-
-			float light_attenuation = exp(-tau * strideLight * sigma_t * shadowOpacity);
-			Lvol += light_color * light_attenuation * density * sigma_s * phaseHG(-ray.dir, light_dir, g) * Tvol * stride;
-
-		}
-		*/
-
-
-
-
-		//if (Tvol < 1e-3)
-		//{
-		//	if (distribution(generator) > 1.0f / d)
-		//	{
-		//		break;
-		//	}
-		//	else 
-		//	{
-		//		Tvol *= d;
-		//	}
-		//}
-
 	}
-
-	L = Lvol;
-	T = Tvol;
 }
 
 // facciamo un tone mapping con Reinhard sulla luminanza
@@ -624,7 +745,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 // Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
 // La versione sulla luminanza è fisicamente più corretta di applicarlo canale per canale: si calcola quanto è brillante il pixel complessivamente,e si scala tutti e tre i canali dello stesso fattore. 
 // Così i rapporti di colore tra R, G e B rimangono invariati — un pixel arancio rimane arancio, diventa solo meno intenso. Il Reinhard per canale invece avvicina tutti i canali a valori simili, desaturando l'immagine.
-vec3 reinhard(vec3 c, float exposure = 0.9f)
+vec3 reinhard(vec3 c, float exposure = 1.4f)
 {
 	c.x *= exposure; c.y *= exposure; c.z *= exposure; // per avere colori più saturi
 	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; // (coefficienti 0.2126/0.7152/0.0722, che sono i pesi percettivi CIE dello spazio sRGB)
@@ -671,41 +792,70 @@ void render()
 {
 	fprintf(stderr, "Rendering frame"); 
 
-	// Carica density.bin
-	Grid grid;
-	grid.densityData = std::make_unique<float[]>(grid.baseResolution * grid.baseResolution * grid.baseResolution);
-	{
-		std::ifstream ifs("density512.bin", std::ios::binary);
-		ifs.read((char*)grid.densityData.get(), sizeof(float) * 512 * 512 * 512);
+	
+	fprintf(stderr, "caricament file nvdb \n");
+	// dichiariamo l'handle e i puntatori fuori dal blocco try-catch per poterli usare nel resto della funzione
+	// Dichiariamo 5 Handle separati, uno per ogni griglia!
+	nanovdb::GridHandle densityHandle;
+	nanovdb::GridHandle niiHandle;
+	nanovdb::GridHandle siiHandle;
+	nanovdb::GridHandle siiSiiHandle;
+	nanovdb::GridHandle velHandle;
+
+	const nanovdb::FloatGrid* densityGrid = nullptr;
+	const nanovdb::FloatGrid* niiGrid = nullptr;
+	const nanovdb::FloatGrid* siiGrid = nullptr;
+	const nanovdb::FloatGrid* siiSiiGrid = nullptr;
+	const nanovdb::FloatGrid* velGrid = nullptr;
+
+	try{
+		
+		// Chiediamo a NanoVDB di caricare ogni griglia specificando il suo NOME
+		densityHandle = nanovdb::io::readGrid("crab_nebula.nvdb", "density");
+		niiHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "nii_ha");
+		siiHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "sii_ha");
+		siiSiiHandle  = nanovdb::io::readGrid("crab_nebula.nvdb", "sii_sii");
+		velHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "vel");
+
+		// Ora ogni Handle contiene SOLO la sua griglia, che sarà quindi all'indice 0!
+		densityGrid = densityHandle.grid<float>(0);
+		niiGrid     = niiHandle.grid<float>(0);
+		siiGrid     = siiHandle.grid<float>(0);
+		siiSiiGrid  = siiSiiHandle.grid<float>(0);
+		velGrid     = velHandle.grid<float>(0);
+
+		if (!densityGrid || !niiGrid || !siiGrid || !siiSiiGrid || !velGrid) 
+		{		
+			fprintf(stderr, "Errore, una o più griglie non trovate nel ndvb \n");
+			return;
+		}
+		fprintf(stderr, "File .nvdb caricato con successo e griglie collegate!\n");
+
+	} catch (const std::exception& e) {
+
+		fprintf(stderr, "Eccezione durante il caricamento del VDB: %s\n", e.what());
+		return;
 	}
 
-	Grid NiiGrid;
-	NiiGrid.densityData = std::make_unique<float[]>(NiiGrid.baseResolution * NiiGrid.baseResolution * NiiGrid.baseResolution);
-	{
-		std::ifstream ifs("nii_ha512.bin", std::ios::binary);
-		ifs.read((char*)NiiGrid.densityData.get(), sizeof(float) * 512 * 512 * 512); 
-	}
+	// controllo per voxel cubico
+	auto vs = densityGrid->voxelSize();
+	fprintf(stderr, "voxelSize: %.4f %.4f %.4f\n", vs[0], vs[1], vs[2]);
 
-	Grid SiiGrid;
-	SiiGrid.densityData = std::make_unique<float[]>(SiiGrid.baseResolution * SiiGrid.baseResolution * SiiGrid.baseResolution);
-	{
-		std::ifstream ifs("sii_ha512.bin", std::ios::binary);
-		ifs.read((char*)SiiGrid.densityData.get(), sizeof(float) * 512 * 512 * 512); 
-	}
+	// controllo posizione della box
+	auto bbox = densityGrid->indexBBox();
+	fprintf(stderr, "indexBBox: (%d,%d,%d) -> (%d,%d,%d)\n",
+		bbox.min()[0], bbox.min()[1], bbox.min()[2],
+		bbox.max()[0], bbox.max()[1], bbox.max()[2]);
 
-	Grid SiiSiiGrid;
-	SiiSiiGrid.densityData = std::make_unique<float[]>(SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution * SiiSiiGrid.baseResolution);
-	{
-		std::ifstream ifs("sii_sii512.bin", std::ios::binary);
-		ifs.read((char*)SiiSiiGrid.densityData.get(), sizeof(float) * 512 * 512 * 512); 
-	}
-
-	Grid VelGrid;
-	VelGrid.densityData = std::make_unique<float[]>(VelGrid.baseResolution * VelGrid.baseResolution * VelGrid.baseResolution);
-	{
-		std::ifstream ifs("vel512.bin", std::ios::binary);
-		ifs.read((char*)VelGrid.densityData.get(), sizeof(float) * 512 * 512 * 512);
-	}
+	// controllo per capire dove il centro della griglia in worldspace
+	auto wbbox = densityGrid->worldBBox();
+	fprintf(stderr, "worldBBox: (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)\n",
+		wbbox.min()[0], wbbox.min()[1], wbbox.min()[2],
+		wbbox.max()[0], wbbox.max()[1], wbbox.max()[2]);
+	float cx = (wbbox.min()[0] + wbbox.max()[0]) * 0.5f;
+	float cy = (wbbox.min()[1] + wbbox.max()[1]) * 0.5f;
+	float cz = (wbbox.min()[2] + wbbox.max()[2]) * 0.5f;
+	fprintf(stderr, "centro world: (%.2f, %.2f, %.2f)\n", cx, cy, cz);
 
 	// carica il catalogo stelle Gaia
 	std::vector<Star> stars = loadStars("gaia_stars.csv");
@@ -715,18 +865,18 @@ void render()
 			i, stars[i].dir.x, stars[i].dir.y, stars[i].dir.z);
 
 	// DEBUG — stampa alcuni valori delle griglie
-	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
-	for (int i = 0; i < 512*512*512; i++) {
-		float d = grid.densityData[i];
-		float t = NiiGrid.densityData[i];
-		if (d > maxD) maxD = d;
-		if (d > 0 && d < minD) minD = d;
-		if (t > maxT) maxT = t;
-		if (t > 0 && t < minT) minT = t;
-	}
+	//float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
+	//for (int i = 0; i < 512*512*512; i++) {
+	//	float d = grid.densityData[i];
+	//	float t = NiiGrid.densityData[i];
+	//	if (d > maxD) maxD = d;
+	//	if (d > 0 && d < minD) minD = d;
+	//	if (t > maxT) maxT = t;
+	//	if (t > 0 && t < minT) minT = t;
+	//}
 
-	fprintf(stderr, "Density  — min=%.4f  max=%.4f\n", minD, maxD);
-	fprintf(stderr, "Temperat — min=%.1f  max=%.1f\n", minT, maxT);
+	//fprintf(stderr, "Density  — min=%.4f  max=%.4f\n", minD, maxD);
+	//fprintf(stderr, "Temperat — min=%.1f  max=%.1f\n", minT, maxT);
 
 	size_t width = 800;
 	size_t height = 800;
@@ -763,7 +913,7 @@ void render()
 	// Inizio loop animazione
 
 	// per test facciamo solo d1 frame
-	float testAngles[] = { 0.f}; 
+	float testAngles[] = {0.f}; 
 	int numFrames = 1;
 
 	// int numFrames = 120;
@@ -799,10 +949,13 @@ void render()
 				vec3 L;
 				float transmittance = 1;
 
-				float tmin, tmax;
-				if (raybox(ray, grid.bounds, tmin, tmax)) {
-					integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
-				}
+				//float tmin, tmax;
+				//if (raybox(ray, grid.bounds, tmin, tmax)) {
+				//	integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
+				//}
+
+				// tMin = 0.0f, tMax = 1000.0f (distanza massima sicura)
+				integrate(ray, 0.0f, 1000.0f, L, transmittance, densityGrid, niiGrid, siiGrid, siiSiiGrid, velGrid, rng, dist);
 
 				float starBrightness = 50.f; // parametro di bilanciamento luminosità stelle
 
