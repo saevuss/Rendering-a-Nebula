@@ -21,13 +21,16 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     vmax = np.percentile(val[val > 0], percentile_clip)
     val = np.clip(val, 0, vmax)
     
-    #isotrope scale
+    # (1) Isotropic normalization
     center = (xyz.max(axis=0) + xyz.min(axis=0)) / 2
-    scale  = (xyz.max(axis=0) - xyz.min(axis=0)).max() / 2  # scala unica
+    scale  = (xyz.max(axis=0) - xyz.min(axis=0)).max() / 2  
 
     xyz_norm = (xyz - center) / scale  # ora in [-1, 1] isotropo
 
-    idx_raw = ((xyz - center) / scale + 1.0) / 2.0 * (resolution - 1)
+
+
+    # (2) index mapping
+    idx_raw = (xyz_norm + 1.0) / 2.0 * (resolution - 1)
     idx = idx_raw.astype(int)
     idx = np.clip(idx, 0, resolution - 1)
 
@@ -35,6 +38,7 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     grid = np.zeros((resolution, resolution, resolution), dtype=np.float32)
 
 
+    # (3) Scatter and average
     # if more than 1 point is in the same voxel, it takes an average
     counts = np.zeros_like(grid)
     np.add.at(grid, (idx[:,2], idx[:,1], idx[:,0]), val)
@@ -42,9 +46,11 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     mask = counts > 0
     grid[mask] /= counts[mask] #average in those cells where there is more than one point
     
+    # (4) Dynamic range compression
     # normalize [0, 1]
     if grid.max() > 0:
         grid /= grid.max()
+    # log1p(x) = log(1+x)
     grid = np.log1p(grid*9.0)/np.log1p(9.0) #necessary to have a more realistic distribution, because
     #without the line above, even after clip p99.5, if there was a single voxel with very high value, all the other would have
     #resulted to be near to 0

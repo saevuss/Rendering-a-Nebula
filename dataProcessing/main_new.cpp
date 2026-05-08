@@ -1,8 +1,14 @@
-//g++-15 -fopenmp -isysroot $(xcrun --show-sdk-path) main.cpp -o main
+//g++-15 -fopenmp -std=c++17 \
+  -isysroot $(xcrun --show-sdk-path) \
+  -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
+  main.cpp -o main
 //./main
 
 #define _USE_MATH_DEFINES
 #define _CRT_SECURE_NO_WARNINGS
+
+#pragma warning(disable : 4146) // Spegne il fastidioso errore C4146 di Visual Studio
+
 
 #include <cmath>
 #include <iostream>
@@ -20,6 +26,13 @@
 
 #include <atomic> 
 #include <omp.h>
+
+#include <nanovdb/NanoVDB.h>
+#include <nanovdb/io/IO.h>
+#include <nanovdb/math/SampleFromVoxels.h>
+#include <nanovdb/math/HDDA.h>
+#include <nanovdb/math/Ray.h>
+
 
 //debug
 std::atomic<int> highNii{0};
@@ -323,6 +336,7 @@ vec3 starContribution(const Ray& ray, const std::vector<Star>& stars, float star
 };
 
 
+//NOT EXPLAINED IN METHOD
 bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tmax)
 {
 	// Per sapere quale bound usare come entrata e quale come uscita, 
@@ -367,6 +381,7 @@ bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tmax)
 }
 
 
+//NOT EXPLAINED IN METHOD
 // la funzione lookup quindi mi fornisce il valore della densità. per farlo trasforma il punto in cui siamo in coordinate locali, poi voxel, 
 // poi trovo le coordinate del voxel in cui mi trovo, quindi utilizzando gli 8 voxel vicini faccio l'interpolazione trilineare con i valori delle densitò ai voxel vicini
 // 1.  Spazio mondo → (83.5, 12.3, -45.2) — il punto reale nella scena
@@ -412,7 +427,20 @@ float lookup(const Grid& grid, const vec3& p)
 	return value;
 }
 
+// Con NanoVDB, tutta questa matematica complessa è già ottimizzata al massimo dentro una classe chiamata Sampler (nanovdb::SampleFromVoxels).
+// La funzione per campionare il volume con Nanovdb:
+inline float sampleGrid(const nanovdb::FloatGrid* grid, const vec3& p, nanovdb::math::SampleFromVoxels<nanovdb::FloatGrid::TreeType, 1, false>& sampler)
+{
+	if (!grid) return 0.0f;
 
+	nanovdb::Vec3f nvWorldPos(p.x, p.y, p.z); // converte il vec3 nel vettore nanovdb
+	nanovdb::Vec3f indexPos = grid->worldToIndexF(nvWorldPos); // // NanoVDB calcola istantaneamente dove si trova il punto all'interno dell'albero VDB
+
+	return sampler(indexPos); // Il sampler legge i dati e fa l'interpolazione trilineare in automatico!
+}
+
+
+//NOT USED
 
 float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 {
@@ -424,100 +452,117 @@ float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 
 vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float vel)
 {
-	// Tutti i valori sono in [0,1] dopo log-stretch.
+	// Mappatura a falsi colori basata sui dati FITS disponibili
+	// (Martin et al. 2021, SITELLE/ORB).
 	//
-	// FISICA (dal paper Martin et al. 2021, Crab Nebula con SITELLE):
-	// - La ionizzazione è da shock del pulsar wind, NON da fotoionizzazione UV.
-	// - NII/Ha traccia lo stato di ionizzazione: basso = gas più ionizzato
-	//   (direttamente esposto al vento della pulsar), alto = ejecta più freddi
-	//   e densi nelle shell esterne.
-	// - SII/Ha traccia le regioni di shock: alto dove il fronte di espansione
-	//   comprime il gas termico contro la nebulosa di sincrotrone.
-	// - SII6716/SII6731 (sii_sii) è diagnostico della densità elettronica:
-	//   rapporto alto (~1.4) = gas rarefatto (~100 cm^-3),
+	// I dati disponibili sono RAPPORTI di righe di emissione, non intensità
+	// assolute. Tutti i valori sono normalizzati in [0,1] dopo log-stretch
+	// (normalizzazione lineare per vel).
+	//
+	// Range reali misurati a runtime sui voxel campionati:
+	//   nii_ha  = [0.0000, 0.5544]
+	//   sii_ha  = [0.0000, 0.6435]
+	//   vel     = [0.0003, 0.9878] — centro fisico a 0.5 (range simmetrico)
+	//
+	// NOTA sulla palette: la Hubble Palette standard (SHO) richiederebbe
+	// tre canali: SII→rosso, Hα→verde, OIII→blu. Nei dati SITELLE non sono
+	// presenti né Hα assoluto né OIII — solo i rapporti NII/Hα e SII/Hα.
+	// Si adotta quindi una palette alternativa fisicamente motivabile:
+	//
+	//   Hα implicito (nii_ha e sii_ha bassi) → blu/viola
+	//     — coerente con l'aspetto ottico reale della Crab a banda stretta,
+	//       dove le zone a bassa emissione di NII appaiono dominate dal
+	//       continuo e dall'emissione diffusa.
+	//   NII dominante (nii_ha alto) → rosso
+	//     — ejecta freddi e densi nella shell esterna (658 nm).
+	//   SII forte (sii_ha alto)     → arancio
+	//     — fronte di shock al bordo della nebulosa (671/673 nm).
+	//   SII6716/6731 (sii_sii)      → diagnostico densità elettronica,
+	//                                  modula saturazione (non ha colore proprio).
+	//   vel                         → Doppler shift cromatico sottile.
+	//
+	// NOTA: il sincrotrone della PWN non è presente nei FITS SITELLE.
+	// Andrà aggiunto come componente separata in futuro.
+	//
+	// FISICA dei rapporti (dal paper Martin et al. 2021):
+	// - NII/Ha: basso = gas più ionizzato, alto = ejecta freddi e densi.
+	// - SII/Ha: alto dove il fronte di espansione comprime il gas termico.
+	// - SII6716/SII6731: rapporto alto (~1.4) = gas rarefatto (~100 cm^-3),
 	//   rapporto basso (~0.4) = gas denso (~10000 cm^-3).
-	//   Nel bin normalizzato: valore alto = denso, valore basso = rarefatto.
-	//   (la normalizzazione inverte: il minimo fisico 0.4 diventa 0 nel bin)
+	//   Dopo normalizzazione: valore basso nel bin = gas denso
+	//   (il minimo fisico 0.4 diventa 0 nel bin).
 
-	// Colori ancorati alla fisica della Crab:
-	// gas ionizzato dal pulsar wind → tende al blu-violaceo (come nelle
-	// immagini ottiche HST della Crab dove la PWN è blu per sincrotrone)
-	vec3 pwn    { 0.3f,  0.5f,  1.0f  }; // blu — gas ionizzato dal pulsar wind (basso NII/Ha)
+	vec3 ha_color  { 0.05f, 0.2f,  0.85f  }; // Hα implicito → blu/viola
+	vec3 nii_color { 1.0f,  0.1f,  0.0f  }; // NII → rosso (658 nm)
+	vec3 sii_color { 1.0f,  0.6f,  0.0f  }; // SII → arancio (671/673 nm)
 
-	// ejecta termici nella shell → rosso-arancio (dominati da NII, SII)
-	vec3 ejecta { 0.9f,  0.15f, 0.02f };  // rosso — ejecta densi, basso grado ionizzazione
-
-	// zona di shock al fronte di espansione → arancio caldo (alto SII/Ha)
-	// fisicamente: interfaccia tra nebulosa sincrotrone e gas termico
-	// è dove Rayleigh-Taylor instabilities creano i filamenti (Hester 1996, citato nel paper)
-	vec3 shock  { 1.0f,  0.5f,  0.0f  }; // arancio — fronte di shock
-
-	// gas denso (basso sii_sii) → più opaco, tende al rosso scuro
-	// gas rarefatto (alto sii_sii) → più trasparente, tende al blu
-	// NON usiamo "bianco caldo" perché non c'è una stella centrale calda —
-	// il centro della Crab è dominato dalla PWN non da emissione termica densa.
-	vec3 dense  { 0.6f,  0.08f, 0.02f }; // rosso scuro — filamenti ad alta densità elettronica
-
-	// --- Blend 1: NII/Ha → ionizzazione ---
-	// basso NII/Ha (vicino al pulsar wind) = pwn (blu)
-	// alto NII/Ha (ejecta esterni) = ejecta (rosso)
-	// dopo — stile HST, density come peso aggiuntivo:
-	float t_nii = std::clamp(nii_ha * 1.5f + density * 0.8f, 0.f, 1.f);
+	// --- Blend 1: NII/Ha → mix Hα implicito / NII ---
+	// t_nii=0: NII assente, Hα domina → blu/viola
+	// t_nii=1: NII domina → rosso
+	// Fattore 3.5: porta il range reale [0, 0.55] a saturare correttamente
+	// in [0,1] senza che il blu/viola schiacci i filamenti rossi.
+	float t_nii = std::clamp(nii_ha * 5.0f, 0.f, 1.f);  
 	vec3 baseColor{
-		pwn.x * (1.f - t_nii) + ejecta.x * t_nii,
-		pwn.y * (1.f - t_nii) + ejecta.y * t_nii,
-		pwn.z * (1.f - t_nii) + ejecta.z * t_nii
+		ha_color.x * (1.f - t_nii) + nii_color.x * t_nii,
+		ha_color.y * (1.f - t_nii) + nii_color.y * t_nii,
+		ha_color.z * (1.f - t_nii) + nii_color.z * t_nii
 	};
 
-	// --- Blend 2: SII/Ha → shock ---
-	// alto SII/Ha = zona di shock al fronte di espansione
-	float t_sii = std::clamp(sii_ha * 1.5f, 0.f, 1.f);
-	baseColor.x = baseColor.x * (1.f - t_sii) + shock.x * t_sii;
-	baseColor.y = baseColor.y * (1.f - t_sii) + shock.y * t_sii;
-	baseColor.z = baseColor.z * (1.f - t_sii) + shock.z * t_sii;
+	// --- Blend 2: SII/Ha → spinge verso arancio ---
+	// alto SII/Ha = fronte di shock al bordo della nebulosa.
+	// Fattore 3.0: porta il range reale [0, 0.64] a coprire bene [0,1].
+	float t_sii = std::clamp(sii_ha * 4.5f, 0.f, 1.f);  
+	baseColor.x = baseColor.x * (1.f - t_sii) + sii_color.x * t_sii;
+	baseColor.y = baseColor.y * (1.f - t_sii) + sii_color.y * t_sii;
+	baseColor.z = baseColor.z * (1.f - t_sii) + sii_color.z * t_sii;
 
 	// --- Blend 3: SII6716/SII6731 → densità elettronica ---
-	// sii_sii basso nel bin = rapporto fisico basso = alta densità elettronica
-	// usiamo (1 - sii_sii) per avere t_dense alto dove il gas è denso
-	float t_dense = 0.f;
-	if (density > 0.f && sii_sii > 0.05f)  // soglia: esclude voxel senza dati reali
-		t_dense = std::clamp((1.f - sii_sii) * 1.5f, 0.f, 1.f);
-	baseColor.x = baseColor.x * (1.f - t_dense) + dense.x * t_dense;
-	baseColor.y = baseColor.y * (1.f - t_dense) + dense.y * t_dense;
-	baseColor.z = baseColor.z * (1.f - t_dense) + dense.z * t_dense;
+	// Non è una riga spettrale con un colore proprio — è un rapporto
+	// diagnostico che indica quanto è compresso il gas.
+	// Lo usiamo per modulare la saturazione del colore base:
+	//   gas denso   (sii_sii basso → t_dense alto) → desatura, tende al scuro
+	//   gas rarefatto (sii_sii alto → t_dense basso) → mantiene saturazione
+	// La soglia sii_sii > 0.05 esclude i voxel senza misura SII6716/6731
+	// (sii_sii=0 significa assenza di dato, non gas denso).
+	if (density > 0.f && sii_sii > 0.05f) {
+		float t_dense = std::clamp((1.f - sii_sii) * 0.4f, 0.f, 1.f);
+		baseColor.x *= (1.f - t_dense * 0.3f); // desatura R leggermente
+		baseColor.y *= (1.f - t_dense * 0.5f); // desatura G più forte
+		baseColor.z *= (1.f - t_dense * 0.2f); // desatura B poco
+	}
 
-	// --- Blend 4: velocità radiale → Doppler shift del colore ---
+	// --- Blend 4: velocità radiale → Doppler shift cromatico ---
 	//
-	// FISICA: la nebula si espande a ±1500 km/s. Le righe di emissione
-	// delle zone che si allontanano da noi (redshift) sono spostate
+	// FISICA: la nebulosa si espande a ±1500 km/s. Le righe di emissione
+	// delle zone che si allontanano da noi (redshift) appaiono spostate
 	// verso il rosso; quelle che si avvicinano (blueshift) verso il blu.
-	// Questo è esattamente il meccanismo usato nel paper per ricostruire
-	// la struttura 3D: ogni filamento ha una Z ricavata dalla sua velocità.
+	// Questo è il meccanismo usato da SITELLE/ORB per ricostruire la
+	// struttura 3D: ogni filamento ha una coordinata Z ricavata dalla
+	// sua velocità radiale misurata.
 	//
-	// Nel bin: 0.0 = voxel vuoto (nessun dato)
-	//          ~0.46 = gas fermo (vel ≈ 0 km/s)
-	//          > 0.46 = redshift (si allontana)
-	//          < 0.46 = blueshift (si avvicina)
+	// Nel bin normalizzato (normalizzazione lineare su range fisico):
+	//   0.0   = voxel vuoto (nessun dato)
+	//   0.5   = gas fermo (vel ≈ 0 km/s) — range misurato [0.0003, 0.9878],
+	//           quasi simmetrico attorno a 0.5.
+	//   > 0.5 = redshift (gas che si allontana da noi)
+	//   < 0.5 = blueshift (gas che si avvicina a noi)
 	//
-	// Usiamo 0.46 come zero fisico (valore misurato dalla voxelizzazione).
-	// La soglia density > 0 esclude i voxel vuoti dove vel=0.0 non ha
-	// significato fisico — senza di essa tutto il vuoto sembrerebbe gas fermo.
-
+	// La soglia density > 0 && vel > 0 esclude i voxel vuoti dove vel=0.0
+	// non ha significato fisico.
+	// strength = 0.15 è volutamente sottile: il Doppler è un effetto
+	// secondario rispetto alla composizione chimica (NII, SII).
 	if (density > 0.f && vel > 0.f) {
-		// doppler in [-1, +1]: negativo = blueshift, positivo = redshift
-		float doppler = (vel - 0.477f) * 2.f;
-		float strength = 0.25f; // quanto il Doppler modifica il colore (0=niente, 1=totale)
-
-		// redshift: spinge verso il rosso, toglie blu
-		// blueshift: spinge verso il blu, toglie rosso
-		baseColor.x += doppler * strength;        // R: sale con redshift
-		baseColor.z -= doppler * strength;        // B: sale con blueshift
+		float doppler  = (vel - 0.5f) * 2.f; // in [-1, +1]
+		float strength = 0.15f;
+		baseColor.x += doppler * strength; // R: sale con redshift
+		baseColor.z -= doppler * strength; // B: sale con blueshift
 		baseColor.x = std::clamp(baseColor.x, 0.f, 1.f);
 		baseColor.z = std::clamp(baseColor.z, 0.f, 1.f);
 	}
 
 	return baseColor;
 }
+
 
 // L è la radianza raccolta (luminanza del volume, cioè il colore finale)
 // T è la trasmittanza finale (la transparency)
@@ -579,6 +624,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 		
 		if (Tvol < 1e-4f) break; 
 
+		//emColor × density × emissivity is the Le of the report
 		Lvol += emColor * density * emissivity * Tvol * stride; // contributo di emissione
 		if (syn > 0.02f) // ignora il rumore di fondo
     		Lvol += synchColor * syn * emissivity * 0.04 * Tvol * stride;
@@ -628,6 +674,104 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 	T = Tvol;
 }
 
+
+void integrate(const Ray& ray, const float& tMin, const float& tMax,
+	vec3& L, float& T,
+	const nanovdb::FloatGrid* densityGrid,
+	const nanovdb::FloatGrid* niiGrid,
+	const nanovdb::FloatGrid* siiGrid,
+	const nanovdb::FloatGrid* siiSiiGrid,
+	const nanovdb::FloatGrid* velGrid,
+	const nanovdb::FloatGrid* synGrid,
+	std::default_random_engine& rng,
+	std::uniform_real_distribution<float>& dist)
+{
+	float sigma_t  = 0.45f;
+	float emissivity = 12.f;
+	T = 1.0f;
+	L = vec3{ 0.f, 0.f, 0.f };
+
+	// Costruiamo il raggio NanoVDB in WORLD SPACE
+	nanovdb::Vec3f nvOrig(ray.orig.x, ray.orig.y, ray.orig.z);
+	nanovdb::Vec3f nvDir (ray.dir.x,  ray.dir.y,  ray.dir.z);
+	nanovdb::math::Ray<float> nvRay(nvOrig, nvDir, tMin, tMax);
+
+	// Convertiamo in INDEX SPACE — qui t è scalato diversamente
+	nanovdb::math::Ray<float> idxRay = nvRay.worldToIndexF(*densityGrid);
+
+	// Clipping sulla bbox della griglia in index space
+	float t0 = idxRay.t0();
+	float t1 = idxRay.t1();
+	if (!idxRay.intersects(densityGrid->indexBBox(), t0, t1))
+		return;
+
+	// Sampler — uno per griglia, thread-local perché siamo dentro il parallel for
+	using SamplerT = nanovdb::math::SampleFromVoxels<nanovdb::FloatGrid::TreeType, 1, false>;
+	SamplerT densitySampler(densityGrid->tree());
+	SamplerT niiSampler    (niiGrid->tree());
+	SamplerT siiSampler    (siiGrid->tree());
+	SamplerT siiSiiSampler (siiSiiGrid->tree());
+	SamplerT velSampler    (velGrid->tree());
+	SamplerT synSampler(synGrid->tree());
+
+	// stepSize in INDEX SPACE (1 voxel per step è un buon punto di partenza)
+	float stepSize = 1.0f;
+	size_t numSteps = std::max((size_t)1, (size_t)std::ceil((t1 - t0) / stepSize));
+	float stride = (t1 - t0) / numSteps;
+
+	for (size_t n = 0; n < numSteps; n++) {
+		float t = t0 + stride * (n + dist(rng));
+		t = std::min(t, t1);
+
+		// Posizione in INDEX SPACE — la passiamo direttamente al sampler
+		nanovdb::Vec3f idxPos = idxRay(t);
+
+		float density = densitySampler(idxPos);
+
+		if (density > 0.01f) {
+			float nii_ha  = niiSampler(idxPos);
+			float sii_ha  = siiSampler(idxPos);
+			float sii_sii = siiSiiSampler(idxPos);
+			float vel     = velSampler(idxPos);
+
+			vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
+
+			// stride in index space — lo convertiamo in world space per
+			// avere unità fisiche coerenti con sigma_t
+			float worldStride = stride * densityGrid->voxelSize()[0];
+
+			float Tsample = exp(-density * worldStride * sigma_t);
+			T *= Tsample;
+			if (T < 1e-4f) return;
+
+			L += emColor * density * emissivity * T * worldStride;
+
+			// dentro if (density > 0.01f)
+			static std::atomic<int> dbgCount{0};
+			static float niiMin=1,niiMax=0,siiMin=1,siiMax=0,velMin=1,velMax=0;
+			int cnt = dbgCount.fetch_add(1);
+			if (nii_ha < niiMin) niiMin = nii_ha;
+			if (nii_ha > niiMax) niiMax = nii_ha;
+			if (sii_ha < siiMin) siiMin = sii_ha;
+			if (sii_ha > siiMax) siiMax = sii_ha;
+			if (vel < velMin) velMin = vel;
+			if (vel > velMax) velMax = vel;
+			if (cnt == 500000)
+				fprintf(stderr, "nii=[%.4f,%.4f] sii=[%.4f,%.4f] vel=[%.4f,%.4f]\n",
+					niiMin,niiMax,siiMin,siiMax,velMin,velMax);
+		}
+		float syn = synSampler(idxPos);
+		syn = pow(syn, 1.5f); // comprimi i valori alti come nel vecchio codice
+		if (syn > 0.02f) {
+			vec3 synchColor{ 0.15f, 0.55f, 0.85f };
+			float worldStride = stride * densityGrid->voxelSize()[0];
+			L += synchColor * syn * 12.f * 0.04f * T * worldStride;
+		}
+	}
+}
+
+
+
 // facciamo un tone mapping con Reinhard sulla luminanza
 // Il ray marcher accumula radianza fisica lungo il raggio: i valori di L non sono bounded a [0,1], specialmente nelle zone dense dove molti sample contribuiscono.
 // Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
@@ -644,15 +788,27 @@ vec3 reinhard(vec3 c, float exposure = 1.2f)
 // matrice della camera come variabile globale
 // Matrix cameraToWorld{ 1,0,0,0, 0,1,0,0, 0,0,-1,0, 0,0,80,1 };
 
-Matrix buildOrbitCamera(float orbitAngle, float distance) 
+Matrix buildOrbitCamera(float orbitAngle, float distance, vec3 target) 
 {
-	// posizione della camera sull'orbita (piano XZ del world space(
-	vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
+	// // posizione della camera sull'orbita (piano XZ del world space(
+	// vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
 
-	// La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
-	//  Per usarlo come direzione serve normalizzarlo 
-	vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
+	// // La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
+	// //  Per usarlo come direzione serve normalizzarlo 
+	// vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
 
+
+	vec3 camPos{ 
+        target.x + distance * sin(orbitAngle), 
+        target.y, 
+        target.z + distance * cos(orbitAngle) 
+    };
+
+    vec3 forward{ 
+        (target.x - camPos.x) / distance, 
+        (target.y - camPos.y) / distance, 
+        (target.z - camPos.z) / distance 
+    };
 	// asse y del world space usato come riferimento per asse "su". poi dopo calcoleremo quella effettiva
 	vec3 worldUp{ 0.f, 1.f, 0.f }; 
 
@@ -696,35 +852,73 @@ void render()
 	fprintf(stderr, "Rendering frame"); 
 
 	
+	fprintf(stderr, "caricament file nvdb \n");
+	// dichiariamo l'handle e i puntatori fuori dal blocco try-catch per poterli usare nel resto della funzione
+	// Dichiariamo 5 Handle separati, uno per ogni griglia!
+	nanovdb::GridHandle densityHandle;
+	nanovdb::GridHandle niiHandle;
+	nanovdb::GridHandle siiHandle;
+	nanovdb::GridHandle siiSiiHandle;
+	nanovdb::GridHandle velHandle;
+	nanovdb::GridHandle synHandle;
 
-	if (!std::filesystem::exists("../bin_512")) {
-		throw std::runtime_error("Folder ../bin_512 not found");
+	const nanovdb::FloatGrid* densityGrid = nullptr;
+	const nanovdb::FloatGrid* niiGrid = nullptr;
+	const nanovdb::FloatGrid* siiGrid = nullptr;
+	const nanovdb::FloatGrid* siiSiiGrid = nullptr;
+	const nanovdb::FloatGrid* velGrid = nullptr;
+	const nanovdb::FloatGrid* synGrid = nullptr;
+
+	try{
+		
+		// Chiediamo a NanoVDB di caricare ogni griglia specificando il suo NOME
+		densityHandle = nanovdb::io::readGrid("density.nvdb");
+		niiHandle     = nanovdb::io::readGrid("nii_ha.nvdb");
+		siiHandle     = nanovdb::io::readGrid("sii_ha.nvdb");
+		siiSiiHandle  = nanovdb::io::readGrid("sii_sii.nvdb");
+		velHandle     = nanovdb::io::readGrid("vel.nvdb");
+		synHandle     = nanovdb::io::readGrid("syn.nvdb");
+
+		// Ora ogni Handle contiene SOLO la sua griglia, che sarà quindi all'indice 0!
+		densityGrid = densityHandle.grid<float>(0);
+		niiGrid     = niiHandle.grid<float>(0);
+		siiGrid     = siiHandle.grid<float>(0);
+		siiSiiGrid  = siiSiiHandle.grid<float>(0);
+		velGrid     = velHandle.grid<float>(0);
+		synGrid     = synHandle.grid<float>(0);
+
+		if (!densityGrid || !niiGrid || !siiGrid || !siiSiiGrid || !velGrid || !synGrid) 
+		{		
+			fprintf(stderr, "Errore, una o più griglie non trovate nel ndvb \n");
+			return;
+		}
+		fprintf(stderr, "File .nvdb caricato con successo e griglie collegate!\n");
+
+	} catch (const std::exception& e) {
+
+		fprintf(stderr, "Eccezione durante il caricamento del VDB: %s\n", e.what());
+		return;
 	}
 
-	size_t N = 512 * 512 * 512;
-	Grid grid;
-	grid.densityData = std::make_unique<float[]>(N);
-	loadBinary("../bin_512/density.bin", grid.densityData, N);
+	// controllo per voxel cubico
+	auto vs = densityGrid->voxelSize();
+	fprintf(stderr, "voxelSize: %.4f %.4f %.4f\n", vs[0], vs[1], vs[2]);
 
-	Grid NiiGrid;
-	NiiGrid.densityData = std::make_unique<float[]>(N);
-	loadBinary("../bin_512/nii_ha.bin", NiiGrid.densityData, N);
+	// controllo posizione della box
+	auto bbox = densityGrid->indexBBox();
+	fprintf(stderr, "indexBBox: (%d,%d,%d) -> (%d,%d,%d)\n",
+		bbox.min()[0], bbox.min()[1], bbox.min()[2],
+		bbox.max()[0], bbox.max()[1], bbox.max()[2]);
 
-	Grid SiiGrid;
-	SiiGrid.densityData = std::make_unique<float[]>(N);
-	loadBinary("../bin_512/sii_ha.bin", SiiGrid.densityData, N);
-
-	Grid SiiSiiGrid;
-	SiiSiiGrid.densityData = std::make_unique<float[]>(N);
-	loadBinary("../bin_512/sii_sii.bin", SiiSiiGrid.densityData, N);
-
-	Grid VelGrid;
-	VelGrid.densityData = std::make_unique<float[]>(N);
-	loadBinary("../bin_512/vel.bin", VelGrid.densityData, N);
-
-	Grid Synch;
-	Synch.densityData = std::make_unique<float[]>(N);
-	loadBinary("../bin_512/synchrotron.bin", Synch.densityData, N);
+	// controllo per capire dove il centro della griglia in worldspace
+	auto wbbox = densityGrid->worldBBox();
+	fprintf(stderr, "worldBBox: (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)\n",
+		wbbox.min()[0], wbbox.min()[1], wbbox.min()[2],
+		wbbox.max()[0], wbbox.max()[1], wbbox.max()[2]);
+	float cx = (wbbox.min()[0] + wbbox.max()[0]) * 0.5f;
+	float cy = (wbbox.min()[1] + wbbox.max()[1]) * 0.5f;
+	float cz = (wbbox.min()[2] + wbbox.max()[2]) * 0.5f;
+	fprintf(stderr, "centro world: (%.2f, %.2f, %.2f)\n", cx, cy, cz);
 
 	// carica il catalogo stelle Gaia
 	std::vector<Star> stars = loadStars("gaia_stars.csv");
@@ -734,18 +928,18 @@ void render()
 			i, stars[i].dir.x, stars[i].dir.y, stars[i].dir.z);
 
 	// DEBUG — stampa alcuni valori delle griglie
-	float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
-	for (int i = 0; i < 512*512*512; i++) {
-		float d = grid.densityData[i];
-		float t = NiiGrid.densityData[i];
-		if (d > maxD) maxD = d;
-		if (d > 0 && d < minD) minD = d;
-		if (t > maxT) maxT = t;
-		if (t > 0 && t < minT) minT = t;
-	}
+	//float minD = 1e9, maxD = 0, minT = 1e9, maxT = 0;
+	//for (int i = 0; i < 512*512*512; i++) {
+	//	float d = grid.densityData[i];
+	//	float t = NiiGrid.densityData[i];
+	//	if (d > maxD) maxD = d;
+	//	if (d > 0 && d < minD) minD = d;
+	//	if (t > maxT) maxT = t;
+	//	if (t > 0 && t < minT) minT = t;
+	//}
 
-	fprintf(stderr, "Density  — min=%.4f  max=%.4f\n", minD, maxD);
-	fprintf(stderr, "Temperat — min=%.1f  max=%.1f\n", minT, maxT);
+	//fprintf(stderr, "Density  — min=%.4f  max=%.4f\n", minD, maxD);
+	//fprintf(stderr, "Temperat — min=%.1f  max=%.1f\n", minT, maxT);
 
 	size_t width = 800;
 	size_t height = 800;
@@ -782,17 +976,18 @@ void render()
 	// Inizio loop animazione
 
 	// per test facciamo solo d1 frame
-	float testAngles[] = { 0.f}; 
+	float testAngles[] = {0.f}; 
 	int numFrames = 1;
 
-	// int numFrames = 120;
+	//int numFrames = 120;
 	for (int frame = 0; frame < numFrames; ++frame) {
 
 		fprintf(stderr, "\n=== Rendering frame %d / %d ===\n", frame + 1, numFrames);
 
-		// float angle = 2.f * M_PI * frame / numFrames; //calcolo angolo per ciascun frame
+		// float angle = 2.f * M_PI * frame / numFrames; //calcolo angolo per ciascun frame //MORE FRAMES
 		float angle = testAngles[frame]; // Prende l'angolo dall'array per il test
-		Matrix cameraToWorld = buildOrbitCamera(angle, 80.f); // costruisco matrice di rotazione della telecamera per ciascun frame
+		vec3 gridCenter{ cx, cy, cz };
+		Matrix cameraToWorld = buildOrbitCamera(angle, 120.f, gridCenter); // costruisco matrice di rotazione della telecamera per ciascun frame
 		vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // il ray ovviamente dipende da dov è la camera
 
 		std::atomic<int> rowsDone{0};
@@ -818,10 +1013,13 @@ void render()
 				vec3 L;
 				float transmittance = 1;
 
-				float tmin, tmax;
-				if (raybox(ray, grid.bounds, tmin, tmax)) {
-					integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, Synch, rng, dist);
-				}
+				//float tmin, tmax;
+				//if (raybox(ray, grid.bounds, tmin, tmax)) {
+				//	integrate(ray, tmin, tmax, L, transmittance, grid, NiiGrid, SiiGrid, SiiSiiGrid, VelGrid, rng, dist);
+				//}
+
+				// tMin = 0.0f, tMax = 1000.0f (distanza massima sicura)
+				integrate(ray, 0.0f, 1000.0f, L, transmittance, densityGrid, niiGrid, siiGrid, siiSiiGrid, velGrid, synGrid, rng, dist);
 
 				float starBrightness = 50.f; // parametro di bilanciamento luminosità stelle
 

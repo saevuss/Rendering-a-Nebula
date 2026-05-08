@@ -1,7 +1,12 @@
 import trimesh
+
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from noise import pnoise3
+import openvdb as vdb
+import nanovdb
+import nanovdb.io
+import nanovdb.tools
 
 resolution = 512
 SYNCH_FRAC = 0.25 #the synchrotrone occupies about 25/30% of nebula
@@ -74,6 +79,21 @@ grid_final = gaussian_filter(grid_noisy, sigma=1.2)
 grid_final /= grid_final.max()
 #log scretch to compress high values and increase lower ones
 grid_final = np.log1p(grid_final * 4.0) / np.log1p(4.0)
+
+vdb_grid = vdb.FloatGrid()
+vdb_grid.name = "synchrotron"
+vdb_grid.copyFromArray(grid_final)
+
+# stessa transform degli altri nvdb: voxelSize = 60/512, translation = (-30, -30, -30)
+scale = 60.0 / resolution
+vdb_grid.transform = vdb.createLinearTransform(voxelSize=scale)
+vdb_grid.transform.preTranslate((-30.0, -30.0, -30.0))
+vdb_grid.prune(0.0)
+
+# converti in NanoVDB e salva
+handle = nanovdb.tools.openToNanoVDB(vdb_grid)
+nanovdb.io.writeGrid("script_prova/syn.nvdb", handle)
+print("Salvato: syn.nvdb")
 
 
 grid_final.astype('<f4').tofile("bin_512/synchrotron.bin")
