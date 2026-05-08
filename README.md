@@ -1,53 +1,103 @@
-# Rendering-a-Nebulae
-A nebula renderer built in C++ that uses raymarching to simulate physically-grounded light transport through procedurally generated volumetric density fields. Designed for CPU execution, the system applies algorithmic optimizations to achieve high-quality images of procedurally generated nebulae without relying on dedicated GPU hardware.
+# Crab Nebula Volumetric Renderer
 
-### Data - Crab Nebula (M1)
+Physically-based volumetric rendering of the Crab Nebula from real astronomical data.
 
-3D point clouds of the Crab Nebula from [Martin et al. (2021)](https://arxiv.org/pdf/2101.02709), available at [thomasorb/M1_paper](https://github.com/thomasorb/M1_paper/tree/master). Each FITS file contains **416,573 points** with 4 columns: `X`, `Y`, `Z` (spatial coordinates, normalized in galactic units, range ≈ −1.5 → +1.5) and a scalar value.
+This project implements a custom volumetric renderer capable of reconstructing and rendering the Crab Nebula directly from observational spectroscopic datasets using ray marching and physically-based emission models.
 
-| File | Description |
-|------|-------------|
-| `3dmap_XYZflux.fits` | Total emission flux — the main volume used for 3D rendering |
-| `3dmap_XYZvel.fits` | Radial velocity (km/s) — maps gas depth to reconstruct 3D structure |
-| `3dmap_XYZnii_ha.fits` | [N II]/Hα ratio — highlights nitrogen-rich filaments |
-| `3dmap_XYZsii_ha.fits` | [S II]/Hα ratio — highlights sulfur-rich filaments |
-| `3dmap_XYZsii_sii.fits` | [S II] doublet ratio — traces electron density variations |
+Developed for the course **DH2323 — Computer Graphics** at KTH Royal Institute of Technology.
 
-#### Axis Mapping
- 
-The coordinate assignment is defined in the `show_cloud` function of `3d maps.ipynb`:
- 
-```python
-_y, _z, _x, _scalar = pyfits.open(path)[0].data.T
-cloud = np.array([_x[nonans], _y[nonans], _z[nonans]]).T
-```
- 
-This unpacking means:
- 
-| FITS column | Martin variable | Physical meaning          | Direction         |
-|-------------|-----------------|---------------------------|-------------------|
-| `col 0`     | `_y`            | **Dec** (sky plane)       | North = positive  |
-| `col 1`     | `_z`            | **Line of sight** (Doppler depth) | Receding = positive (redshift) |
-| `col 2`     | `_x`            | **RA** (sky plane)        | East = positive   |
+---
+
+## Features
+
+| Feature | Status |
+|---|---|
+| Volumetric ray marcher | ✅ |
+| Color mapping | ✅ |
+| Background star integration (Gaia DR3) | ✅ |
+| Synchrotron emission rendering | ✅ |
+| NanoVDB sparse renderer | ✅ |
+| Camera orbit animation | ✅ |
+
+---
+
+## Results
+
+### Nebula without stars
+
+The first stage renders only the thermal filament structure reconstructed from the observational data.
+
+<p align="center">
+  <img src="dataProcessing/results/no_star_no_syn.png" width="350">
+</p>
+
+---
+
+### Nebula with synchrotron emission
+
+The synchrotron component of the pulsar wind nebula is rendered separately and integrated as an independent emission channel.
+
+<p align="center">
+  <img src="dataProcessing/results/no_star.png" width="350">
+</p>
+
+---
+
+### Nebula with stars
+
+Background stars from the Gaia DR3 catalogue are projected into world space and composited after volume integration.
+
+<p align="center">
+  <img src="dataProcessing/results/nebula_complete.png" width="350">
+</p>
+
+---
 
 
-### Data processing
-Inspiration from 
-- [How To voxelize meshes and pointclouds in python](https://towardsdatascience.com/how-to-voxelize-meshes-and-point-clouds-in-python-ca94d403f81d/)
-- [Point‑Voxel CNN for Efficient 3D Deep Learning](https://arxiv.org/pdf/1907.03739.pdf)
-- [Scalable desktop visualization of very large radio data cubes](https://arxiv.org/pdf/1510.03589)
 
-### The structures revealed by Chandra’s X-rays of the Crab nebula
-The synchrotron X‑ray emission from the Crab Nebula is mapped from publicly available Chandra 0.3–10 keV FITS images (Chandra X‑ray Observatory, openFITS archive). Since the synchrotron component lacks kinematic information from Doppler lines, it is 3D‑reconstructed by assuming an ellipsoidal volume centered on the pulsar and voxelizing the 2D intensity map, following the geometrical approach used in Chandra’s 3D visualization project (Chandra X‑ray Observatory, ‘Make a Pulsar: Crab Nebula in 3D’).
-[Crab Nebula Sincrotrone](https://chandra.harvard.edu/deadstar/crab.html)
+## Rotating Animations
 
-From [Martin et al. (2021) work](https://arxiv.org/pdf/2101.02709) important informations about the allineation of the torus are revealed to be "symmetrical about the plane of the pulsar wind torus", so the plane of the disk (disk.obj) is exactly the symmetry plane of data FITS. 
-In [Fitting Pulsar Wind Tori](https://iopscience.iop.org/article/10.1086/380486/fulltext/), it is explained a procedure for fitting simple three-dimensional torus models to the X-ray data, which provides robust estimates of the geometric parameters. 
+### Rotation without synchrotron
 
+<p align="center">
+  <img src="dataProcessing/results/nebula.gif" width="350">
+</p>
 
-#### Data
-[Chandra OpenFITS: Crab Nebula](https://chandra.harvard.edu/photo/openFITS/crab.html)
-[Italian Video on Crab](https://www.youtube.com/watch?v=656NJVxXias)
-[Nasa Crab nebula multilayer](https://science.nasa.gov/missions/hubble/nasas-great-observatories-help-astronomers-build-a-3d-visualization-of-an-exploded-star/)
-https://chandra.cfa.harvard.edu/photo/2009/crab/
+---
 
+### Rotation with synchrotron
+
+<p align="center">
+  <img src="dataProcessing/results/nebula_syn.gif" width="350">
+</p>
+
+---
+
+## Technologies
+
+### Languages
+- C++
+- Python
+
+### Libraries
+- NanoVDB
+- OpenVDB
+- NumPy
+- SciPy
+- trimesh
+- noise
+
+---
+
+## Data Sources
+
+- SITELLE spectroscopic reconstruction of the Crab Nebula
+- Gaia DR3 star catalogue
+- NASA Crab Nebula 3D mesh
+
+---
+
+## Authors
+
+- Giorgia Savo
+- Francesco Filippo Stefanutti
