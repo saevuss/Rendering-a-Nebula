@@ -1,8 +1,8 @@
 //g++-15 -fopenmp -std=c++17 \
   -isysroot $(xcrun --show-sdk-path) \
   -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
-  main.cpp -o main
-//./main
+  main2.cpp -o main2
+//./main_new
 
 #define _USE_MATH_DEFINES
 #define _CRT_SECURE_NO_WARNINGS
@@ -837,24 +837,24 @@ vec3 reinhard(vec3 c, float exposure = 1.4f)
 Matrix buildOrbitCamera(float orbitAngle, float distance, vec3 target) 
 {
 	// posizione della camera sull'orbita (piano XZ del world space(
-	vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
+	// vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
 
-	// La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
-	//  Per usarlo come direzione serve normalizzarlo 
-	vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
+	// // La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
+	// //  Per usarlo come direzione serve normalizzarlo 
+	// vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
 
 
-	// vec3 camPos{ 
-    //     target.x + distance * sin(orbitAngle), 
-    //     target.y, 
-    //     target.z + distance * cos(orbitAngle) 
-    // };
+	vec3 camPos{ 
+        target.x + distance * sin(orbitAngle), 
+        target.y, 
+        target.z + distance * cos(orbitAngle) 
+    };
 
-    // vec3 forward{ 
-    //     (target.x - camPos.x) / distance, 
-    //     (target.y - camPos.y) / distance, 
-    //     (target.z - camPos.z) / distance 
-    // };
+    vec3 forward{ 
+        (target.x - camPos.x) / distance, 
+        (target.y - camPos.y) / distance, 
+        (target.z - camPos.z) / distance 
+    };
 	// asse y del world space usato come riferimento per asse "su". poi dopo calcoleremo quella effettiva
 	vec3 worldUp{ 0.f, 1.f, 0.f }; 
 
