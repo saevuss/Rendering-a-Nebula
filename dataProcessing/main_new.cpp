@@ -1,8 +1,8 @@
 //g++-15 -fopenmp -std=c++17 \
   -isysroot $(xcrun --show-sdk-path) \
   -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
-  main.cpp -o main
-//./main
+  main_new.cpp -o main_new
+//./main_new
 
 #define _USE_MATH_DEFINES
 #define _CRT_SECURE_NO_WARNINGS
@@ -200,6 +200,7 @@ struct Star
 {
 	vec3 dir; //vettore unitario che punta verso la stella nel sistema di coordinate celesti
 	float brightness; // flusso lineare, calcolato dalla magnitudine Gaia (// scala: mag 0 → 1.0, mag 5 → 0.01, mag 10 → 0.0001)
+    vec3 color; // prendo il colore dal colour index (differenxa di magnitudine tra le due bande fotometriche BP e RP)
 };
 
 // Le stelle nel catalogo Gaia hanno coordinate nel sistema ICRS mentre ay marcher invece ha il suo sistema mondo dove la camera guarda verso -Z, la nebulosa è all'origine,
@@ -223,17 +224,19 @@ Matrix buildICRSToWorldMatrix()
 	vec3 northPole = { 0.f, 0.f, 1.f };
 
 	// asse X = northPole × camZ: il vettore "destra" nel piano del cielo
-	vec3 camX;
-	camX.x = northPole.y * camZ.z - northPole.z * camZ.y;
-	camX.y = northPole.z * camZ.x - northPole.x * camZ.z;
-	camX.z = northPole.x * camZ.y - northPole.y * camZ.x;
-	camX.nor();
+	// vec3 camX;
+	// camX.x = northPole.y * camZ.z - northPole.z * camZ.y;
+	// camX.y = northPole.z * camZ.x - northPole.x * camZ.z;
+	// camX.z = northPole.x * camZ.y - northPole.y * camZ.x;
+	vec3 camX = cross(northPole, camZ); 
+    camX.nor();
 
 	// asse Y = camZ × camX: il vettore "su" ortogonale per costruzione
-	vec3 camY;
-	camY.x = camZ.y * camX.z - camZ.z * camX.y;
-	camY.y = camZ.z * camX.x - camZ.x * camX.z;
-	camY.z = camZ.x * camX.y - camZ.y * camX.x;
+	// vec3 camY;
+	// camY.x = camZ.y * camX.z - camZ.z * camX.y;
+	// camY.y = camZ.z * camX.x - camZ.x * camX.z;
+	// camY.z = camZ.x * camX.y - camZ.y * camX.x;
+    vec3 camY = cross(camZ, camX); 
 	camY.nor();
 
 	// righe della matrice = assi del sistema mondo espressi in ICRS
@@ -272,11 +275,11 @@ std::vector<Star> loadStars(const std::string& csvPath)
 	while (std::getline(f, line))
 	{
 		long long sid; // source_id lo leggiamo ma non do usiamo
-		double ra, dec, mag;
+		double ra, dec, mag, bprp;
 
 		// sscanf parsea la riga csv nei quattro valori
 		// %lld = long long (source_id), %lf = double (ra, dec, mag)
-		if (sscanf(line.c_str(), "%lld,%lf,%lf,%lf", &sid, &ra, &dec, &mag) != 4)
+		if (sscanf(line.c_str(), "%lld,%lf,%lf,%lf, %lf", &sid, &ra, &dec, &mag, &bprp) != 5)
 			continue; // riga malformata o vuota, salta
 
 		// conversion gradi in radianti
@@ -299,7 +302,46 @@ std::vector<Star> loadStars(const std::string& csvPath)
 		static Matrix icrsToWorld = buildICRSToWorldMatrix(); //Il static è importante: la matrice viene costruita una volta sola al primo caricamento e riusata per tutte le stelle.
 		vec3 dirWorld = applyRotation(icrsToWorld, dir);// Usa l'operatore nativo column-major! // rotazione di stelle da ICRS a spazio mondo
 		dirWorld.nor();
-		stars.push_back(Star{ dirWorld, brightness });	}
+		// stars.push_back(Star{ dirWorld, brightness });	}
+        // bp_rp - > temperatura (Ballesteros 2012) → RGB
+		vec3 starColor{ 1.f, 1.f, 1.f }; // colore di default bianco se bp_rp mancante
+		
+		if (float(bprp) > -99.f) // gestisce casi in cui gaia non ha misurato bp_rp
+		{
+			// formula di ballesteros converte colour indez in temepratura 
+			float T = 4600.f * (1.f/(0.92f*(float)bprp + 1.7f) + 1.f/(0.92f*(float)bprp + 0.62f));
+			T = std::clamp(T, 1000.f, 40000.f);
+
+			// uso formule di Helland per convertire temperatura a RGB
+			float t = T / 100.f; // faccio divisione prima invece che fare in ogni formula
+
+			float r, g, b;
+
+			// red
+			r = (T <= 6600.f) ? 1.f : std::clamp(329.698727446f * powf(t - 60.f, -0.1332047592f) / 255.f, 0.f, 1.f);
+
+			// green
+			if (T <= 6600.f)
+				g = std::clamp((99.4708025861f * logf(t) - 161.1195681661f) / 255.f, 0.f, 1.f);
+			else
+				g = std::clamp(288.1221695283f * powf(t - 60.f, -0.0755148492f) / 255.f, 0.f, 1.f);
+
+			// blue
+			if (T >= 6600.f) {
+				b = 1.f;  
+			}
+			else if (T <= 1900.f) {
+				b = 0.f;  
+			}
+			else {
+				b = std::clamp((138.5177312231f * logf(t - 10.f) - 305.0447927307f) / 255.f, 0.f, 1.f);
+			}
+
+			starColor = vec3{ r,g,b };
+
+		}
+
+		stars.push_back(Star{ dirWorld, brightness, starColor });	}
 
 	fprintf(stderr, "Stelle caricate: %zu\n", stars.size());
 	return stars;
@@ -326,10 +368,14 @@ vec3 starContribution(const Ray& ray, const std::vector<Star>& stars, float star
 
 		float contrib = star.brightness * starBrightness * profile;
 
-		// la stella è bianca — sommiamo lo stesso valore a R, G, B
-		result.x += contrib;
-		result.y += contrib;
-		result.z += contrib;
+		// // la stella è bianca — sommiamo lo stesso valore a R, G, B
+		// result.x += contrib;
+		// result.y += contrib;
+		// result.z += contrib;
+        // contributo stella con colore
+		result.x += contrib * star.color.x;
+		result.y += contrib * star.color.y;
+		result.z += contrib * star.color.z;
 	}
 
 	return result;
@@ -777,7 +823,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 // Un semplice clamp taglia tutto sopra 1.0 portando a saturazione piatta (bianco), perdendo informazione strutturale.
 // La versione sulla luminanza è fisicamente più corretta di applicarlo canale per canale: si calcola quanto è brillante il pixel complessivamente,e si scala tutti e tre i canali dello stesso fattore. 
 // Così i rapporti di colore tra R, G e B rimangono invariati — un pixel arancio rimane arancio, diventa solo meno intenso. Il Reinhard per canale invece avvicina tutti i canali a valori simili, desaturando l'immagine.
-vec3 reinhard(vec3 c, float exposure = 1.2f)
+vec3 reinhard(vec3 c, float exposure = 1.4f)
 {
 	c.x *= exposure; c.y *= exposure; c.z *= exposure; // per avere colori più saturi
 	float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; // (coefficienti 0.2126/0.7152/0.0722, che sono i pesi percettivi CIE dello spazio sRGB)
@@ -790,25 +836,25 @@ vec3 reinhard(vec3 c, float exposure = 1.2f)
 
 Matrix buildOrbitCamera(float orbitAngle, float distance, vec3 target) 
 {
-	// // posizione della camera sull'orbita (piano XZ del world space(
-	// vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
+	// posizione della camera sull'orbita (piano XZ del world space(
+	vec3 camPos{ distance * sin(orbitAngle), 0.f, distance * cos(orbitAngle) };
 
-	// // La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
-	// //  Per usarlo come direzione serve normalizzarlo 
-	// vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
+	// La nebulosa sta all'origine (0, 0, 0). La camera sta in camPos. Quindi:forward = destinazione - origine -> forward = (0,0,0) - camPos
+	//  Per usarlo come direzione serve normalizzarlo 
+	vec3 forward{ -camPos.x / distance, -camPos.y / distance, -camPos.z / distance }; //asse 1
 
 
-	vec3 camPos{ 
-        target.x + distance * sin(orbitAngle), 
-        target.y, 
-        target.z + distance * cos(orbitAngle) 
-    };
+	// vec3 camPos{ 
+    //     target.x + distance * sin(orbitAngle), 
+    //     target.y, 
+    //     target.z + distance * cos(orbitAngle) 
+    // };
 
-    vec3 forward{ 
-        (target.x - camPos.x) / distance, 
-        (target.y - camPos.y) / distance, 
-        (target.z - camPos.z) / distance 
-    };
+    // vec3 forward{ 
+    //     (target.x - camPos.x) / distance, 
+    //     (target.y - camPos.y) / distance, 
+    //     (target.z - camPos.z) / distance 
+    // };
 	// asse y del world space usato come riferimento per asse "su". poi dopo calcoleremo quella effettiva
 	vec3 worldUp{ 0.f, 1.f, 0.f }; 
 
@@ -886,6 +932,10 @@ void render()
 		siiSiiGrid  = siiSiiHandle.grid<float>(0);
 		velGrid     = velHandle.grid<float>(0);
 		synGrid     = synHandle.grid<float>(0);
+        auto synBbox = synGrid->worldBBox();
+            fprintf(stderr, "synchrotron worldBBox: (%.2f,%.2f,%.2f) -> (%.2f,%.2f,%.2f)\n",
+                synBbox.min()[0], synBbox.min()[1], synBbox.min()[2],
+                synBbox.max()[0], synBbox.max()[1], synBbox.max()[2]);
 
 		if (!densityGrid || !niiGrid || !siiGrid || !siiSiiGrid || !velGrid || !synGrid) 
 		{		
@@ -984,8 +1034,8 @@ void render()
 
 		fprintf(stderr, "\n=== Rendering frame %d / %d ===\n", frame + 1, numFrames);
 
-		// float angle = 2.f * M_PI * frame / numFrames; //calcolo angolo per ciascun frame //MORE FRAMES
-		float angle = testAngles[frame]; // Prende l'angolo dall'array per il test
+		//float angle = 2.f * M_PI * frame / numFrames; //calcolo angolo per ciascun frame //MORE FRAMES
+		float angle = testAngles[76]; // Prende l'angolo dall'array per il test
 		vec3 gridCenter{ cx, cy, cz };
 		Matrix cameraToWorld = buildOrbitCamera(angle, 120.f, gridCenter); // costruisco matrice di rotazione della telecamera per ciascun frame
 		vec3 rayOrig = transformPoint(cameraToWorld, vec3{ 0,0,0 }); // il ray ovviamente dipende da dov è la camera
@@ -1021,7 +1071,7 @@ void render()
 				// tMin = 0.0f, tMax = 1000.0f (distanza massima sicura)
 				integrate(ray, 0.0f, 1000.0f, L, transmittance, densityGrid, niiGrid, siiGrid, siiSiiGrid, velGrid, synGrid, rng, dist);
 
-				float starBrightness = 50.f; // parametro di bilanciamento luminosità stelle
+				float starBrightness = 40.f; // parametro di bilanciamento luminosità stelle
 
 
 				vec3 starL = starContribution(ray, stars, starBrightness);
@@ -1048,7 +1098,9 @@ void render()
 
 		// Salvataggio con nome sequenziale per poterli unire in video
 		char filename[64];
-		snprintf(filename, sizeof(filename), "nebula_%04d.ppm", frame);
+        std::filesystem::create_directories("nebula");
+
+		snprintf(filename, sizeof(filename), "nenebula_%04d.ppm", frame);
 		std::ofstream ofs(filename, std::ios::binary);
 		ofs << "P6\n" << width << " " << height << "\n255\n";
 		ofs.write(reinterpret_cast<const char*>(imgbuf.get()), width * height * 3);

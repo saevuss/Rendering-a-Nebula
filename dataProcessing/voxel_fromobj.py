@@ -88,11 +88,11 @@ vdb_grid.copyFromArray(grid_final)
 scale = 60.0 / resolution
 vdb_grid.transform = vdb.createLinearTransform(voxelSize=scale)
 vdb_grid.transform.preTranslate((-30.0, -30.0, -30.0))
-vdb_grid.prune(0.0)
+vdb_grid.prune(1e-4)
 
 # converti in NanoVDB e salva
 handle = nanovdb.tools.openToNanoVDB(vdb_grid)
-nanovdb.io.writeGrid("script_prova/syn.nvdb", handle)
+nanovdb.io.writeGrid("nvdb_512_bound_shared/syn.nvdb", handle)
 print("Salvato: syn.nvdb")
 
 

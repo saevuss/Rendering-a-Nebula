@@ -1,4 +1,5 @@
 '''
+voxel.py
 Voxelization is the process of converting a point cloud into a regular 3D grid, where each cell
  (voxel) aggregates the values of the points that fall within it — analogous to pixelating an 
  image, but in 3D. It is often required by volume renderers that expect a uniform grid rather 
@@ -8,8 +9,46 @@ Voxelization is the process of converting a point cloud into a regular 3D grid, 
 import numpy as np
 from astropy.io import fits
 import os
+import openvdb as vdb
+import nanovdb
+import nanovdb.io
+import nanovdb.tools
+import os
 
-def voxelize(fits_path, resolution,  percentile_clip=99.5):
+FILES = [
+    "fits/3dmap_XYZflux.fits",
+    "fits/3dmap_XYZnii_ha.fits",
+    "fits/3dmap_XYZsii_ha.fits",
+    "fits/3dmap_XYZsii_sii.fits",
+    "fits/3dmap_XYZvel.fits",
+]
+
+def compute_shared_bounds(fits_paths):
+    'reads coords XYZ of all the files and returns'
+    'center and shared scales'
+    xyz_min = np.full(3,  np.inf, dtype=np.float32)
+    xyz_max = np.full(3, -np.inf, dtype=np.float32)
+ 
+    for path in fits_paths:
+        if not os.path.exists(path):
+            print(f"[SKIP] {path} non trovato")
+            continue
+        with fits.open(path) as hdul:
+            xyz = hdul[0].data[:, :3].astype(np.float32)
+        xyz_min = np.minimum(xyz_min, xyz.min(axis=0))
+        xyz_max = np.maximum(xyz_max, xyz.max(axis=0))
+ 
+    center = (xyz_max + xyz_min) / 2.0
+    scale  = (xyz_max - xyz_min).max() / 2.0   # ← isotropo: un solo scalare
+ 
+    print(f"global bounding box :")
+    print(f"  min = {xyz_min}")
+    print(f"  max = {xyz_max}")
+    print(f"  center = {center}  scale = {scale:.4f}")
+    return center, scale
+
+
+def voxelize(fits_path, resolution, center, scale, percentile_clip=99.5):
     with fits.open(fits_path) as hdul:
         data = hdul[0].data #rough array of points
     
@@ -20,14 +59,9 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     #which is far more luminous than others, it would result in a single pixel and the rest black
     vmax = np.percentile(val[val > 0], percentile_clip)
     val = np.clip(val, 0, vmax)
-    
-    # (1) Isotropic normalization
-    center = (xyz.max(axis=0) + xyz.min(axis=0)) / 2
-    scale  = (xyz.max(axis=0) - xyz.min(axis=0)).max() / 2  
 
-    xyz_norm = (xyz - center) / scale  # ora in [-1, 1] isotropo
-
-
+    # (1) isotropic normaliation
+    xyz_norm = (xyz - center) / scale  # now center and scale is taken from input (calculated with function of shared bounding_box)
 
     # (2) index mapping
     idx_raw = (xyz_norm + 1.0) / 2.0 * (resolution - 1)
@@ -56,14 +90,12 @@ def voxelize(fits_path, resolution,  percentile_clip=99.5):
     #resulted to be near to 0
     return grid.astype('<f4') #to resolve endianness
 
-def voxelize_vel(fits_path, resolution):
+def voxelize_vel(fits_path, resolution, center, scale):
     with fits.open(fits_path) as hdul:
         data = hdul[0].data
     xyz = data[:, :3].astype(np.float32)
     val = data[:, 3].astype(np.float32)  # km/s, range [-1814, +1737]
 
-    center = (xyz.max(axis=0) + xyz.min(axis=0)) / 2
-    scale  = (xyz.max(axis=0) - xyz.min(axis=0)).max() / 2
     idx_raw = (xyz - center) / scale
     idx_raw = (idx_raw + 1.0) / 2.0 * (resolution - 1)
     idx = idx_raw.astype(int)
@@ -85,16 +117,51 @@ def voxelize_vel(fits_path, resolution):
 
     return grid.astype('<f4')
 
-density = voxelize("fits/3dmap_XYZflux.fits", resolution=512) #calling the function we have defined
-nii_ha    = voxelize("fits/3dmap_XYZnii_ha.fits", resolution=512) #calling the function we have defined
-sii_ha    = voxelize("fits/3dmap_XYZsii_ha.fits", resolution=512) #calling the function we have defined
-sii_sii    = voxelize("fits/3dmap_XYZsii_sii.fits", resolution=512) #calling the function we have defined
-vel    = voxelize_vel("fits/3dmap_XYZvel.fits", resolution=512) #calling the function we have defined
+def save_as_nvdb(volume_np, grid_name, output_path, voxel_size=60.0/512):
+    grid = vdb.FloatGrid()
+    grid.name = grid_name
+    grid.copyFromArray(volume_np)
+    
+    grid.transform = vdb.createLinearTransform(voxelSize=voxel_size)
+    grid.transform.preTranslate((-30.0, -30.0, -30.0))
+    grid.prune(0.0)
+    
+    handle = nanovdb.tools.openToNanoVDB(grid)
+    handle.floatGrid().setGridName(grid_name)
+    nanovdb.io.writeGrid(output_path, handle)
 
-
-os.makedirs("bin_512/", exist_ok=True)
-density.tofile("bin_512/density.bin")
-nii_ha.tofile("bin_512/nii_ha.bin")
-sii_ha.tofile("bin_512/sii_ha.bin")
-sii_sii.tofile("bin_512/sii_sii.bin")
-vel.tofile("bin_512/vel.bin")
+if __name__ == "__main__":
+    RESOLUTION = 512
+ 
+    # ① shared bounding box, calculated one time
+    center, scale = compute_shared_bounds(FILES)
+ 
+    # ② voxelization
+    density = voxelize("fits/3dmap_XYZflux.fits",   RESOLUTION, center, scale)
+    nii_ha  = voxelize("fits/3dmap_XYZnii_ha.fits",  RESOLUTION, center, scale)
+    sii_ha  = voxelize("fits/3dmap_XYZsii_ha.fits",  RESOLUTION, center, scale)
+    sii_sii = voxelize("fits/3dmap_XYZsii_sii.fits", RESOLUTION, center, scale)
+    vel     = voxelize_vel("fits/3dmap_XYZvel.fits",  RESOLUTION, center, scale)
+ 
+    # ③ saving on .bin
+    os.makedirs("bin_512_bound_shared/", exist_ok=True)
+    density.tofile("bin_512_bound_shared/density.bin")
+    nii_ha .tofile("bin_512_bound_shared/nii_ha.bin")
+    sii_ha .tofile("bin_512_bound_shared/sii_ha.bin")
+    sii_sii.tofile("bin_512_bound_shared/sii_sii.bin")
+    vel    .tofile("bin_512_bound_shared/vel.bin")
+ 
+    # ④ saving on .nvdb
+    grids = {
+        "density": density,
+        "nii_ha":  nii_ha,
+        "sii_ha":  sii_ha,
+        "sii_sii": sii_sii,
+        "vel":     vel,
+    }
+ 
+    os.makedirs("nvdb_512_bound_shared/", exist_ok=True)
+    for name, volume in grids.items():
+        out = f"nvdb_512_bound_shared/{name}.nvdb"
+        save_as_nvdb(volume, name, out)
+        print(f"Saved {out}")
