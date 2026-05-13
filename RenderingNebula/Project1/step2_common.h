@@ -1,4 +1,4 @@
-﻿#pragma once //to include file only once in the compilation
+#pragma once //to include file only once in the compilation
 
 #define _USE_MATH_DEFINES
 #define _CRT_SECURE_NO_WARNINGS
@@ -77,8 +77,8 @@ struct vec3
 inline vec3 cross(const vec3& a, const vec3& b)
 {
     return { a.y*b.z - a.z*b.y,
-        a.z*b.x - a.x*b.z,
-        a.x*b.y - a.y*b.x };
+             a.z*b.x - a.x*b.z,
+             a.x*b.y - a.y*b.x };
 }
 
 
@@ -115,7 +115,7 @@ struct Grid
     size_t baseResolution = 512;
     std::unique_ptr<float[]> densityData;
     vec3 bounds[2]{ vec3{-30,-30,-30}, vec3{30,30,30} };
-
+ 
     float operator()(int xi, int yi, int zi) const
     {
         if (xi < 0 || xi > (int)baseResolution-1 ||
@@ -287,7 +287,7 @@ inline std::vector<Star> loadStars(const std::string& csvPath)
         if ((float)bprp > -99.f)
         {
             float T = 4600.f * (1.f/(0.92f*(float)bprp + 1.7f)
-                + 1.f/(0.92f*(float)bprp + 0.62f));
+                              + 1.f/(0.92f*(float)bprp + 0.62f));
             T = std::clamp(T, 1000.f, 40000.f);
             float t = T / 100.f;
 
@@ -300,8 +300,8 @@ inline std::vector<Star> loadStars(const std::string& csvPath)
                 : std::clamp((288.1221695283f * powf(t-60.f, -0.0755148492f))   / 255.f, 0.f, 1.f);
 
             float b = (T >= 6600.f) ? 1.f
-                : (T <= 1900.f) ? 0.f
-                : std::clamp((138.5177312231f * logf(t-10.f) - 305.0447927307f) / 255.f, 0.f, 1.f);
+                    : (T <= 1900.f) ? 0.f
+                    : std::clamp((138.5177312231f * logf(t-10.f) - 305.0447927307f) / 255.f, 0.f, 1.f);
 
             starColor = {r, g, b};
         }
@@ -319,7 +319,7 @@ inline std::vector<Star> loadStars(const std::string& csvPath)
 //  Accumulates the colour contribution of all stars visible along a ray.
 // ─────────────────────────────────────────────────────────────────────────────
 inline vec3 starContribution(const Ray& ray, const std::vector<Star>& stars,
-    float starBrightness)
+                              float starBrightness)
 {
     vec3  result{0,0,0};
     const float sigma        = 0.001f;
@@ -403,7 +403,7 @@ inline vec3 reinhard(vec3 c, float exposure = 1.4f)
 }
 
 
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 //  raybox
 //
@@ -417,31 +417,31 @@ inline bool raybox(const Ray& ray, const vec3 bounds[2], float& tmin, float& tma
     float b = bounds[1 - ray.sign[0]].x - ray.orig.x;
     float c = bounds[    ray.sign[1]].y - ray.orig.y;
     float d = bounds[1 - ray.sign[1]].y - ray.orig.y;
-
+ 
     float x0 = (a == 0.f) ? 0.f : a * ray.invDir.x;
     float x1 = (b == 0.f) ? 0.f : b * ray.invDir.x;
     float y0 = (c == 0.f) ? 0.f : c * ray.invDir.y;
     float y1 = (d == 0.f) ? 0.f : d * ray.invDir.y;
-
+ 
     if (x0 > y1 || y0 > x1) return false; // X and Y intervals don't overlap
-
+ 
     tmin = (y0 > x0) ? y0 : x0;
     tmax = (y1 < x1) ? y1 : x1;
-
+ 
     // ── Z slab ───────────────────────────────────────────────────────────────
     float e = bounds[    ray.sign[2]].z - ray.orig.z;
     float f = bounds[1 - ray.sign[2]].z - ray.orig.z;
-
+ 
     float z0 = (e == 0.f) ? 0.f : e * ray.invDir.z;
     float z1 = (f == 0.f) ? 0.f : f * ray.invDir.z;
-
+ 
     if (tmin > z1 || z0 > tmax) return false; // Z doesn't overlap with XY
-
+ 
     tmin = std::max(z0, tmin);
     tmax = std::min(z1, tmax);
     return true;
 }
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 //  lookup  — trilinear interpolation on a Grid
 //
@@ -453,14 +453,14 @@ inline float lookup(const Grid& grid, const vec3& p)
     const vec3 gridSize = grid.bounds[1] - grid.bounds[0];
     const vec3 pLocal   = (p - grid.bounds[0]) / gridSize;          // [0,1]³
     const vec3 pVoxel   = pLocal * (float)grid.baseResolution;      // voxel space (float)
-
+ 
     // Shift so that floor gives the lower-left-back voxel index
     const vec3 pLattice = {pVoxel.x - 0.5f, pVoxel.y - 0.5f, pVoxel.z - 0.5f};
-
+ 
     const int xi = (int)std::floor(pLattice.x);
     const int yi = (int)std::floor(pLattice.y);
     const int zi = (int)std::floor(pLattice.z);
-
+ 
     float value = 0.f;
     for (int i = 0; i < 2; ++i)
         for (int j = 0; j < 2; ++j)
@@ -490,7 +490,7 @@ inline int parseArgs(int argc, char* argv[], int defaultFrames = 10)
     for (int i = 1; i < argc; ++i)
     {
         std::string arg(argv[i]);
-
+ 
         // Named flag: --frames N  or  -f N
         if (arg == "--frames" || arg == "-f")
         {
@@ -505,7 +505,7 @@ inline int parseArgs(int argc, char* argv[], int defaultFrames = 10)
             }
             return n;
         }
-
+ 
         // Bare positional integer: ./main_bin 24
         if (!arg.empty() && std::all_of(arg.begin(), arg.end(), ::isdigit))
         {
@@ -516,13 +516,13 @@ inline int parseArgs(int argc, char* argv[], int defaultFrames = 10)
             }
             return n;
         }
-
+ 
         fprintf(stderr, "Warning: unrecognised argument '%s' -- ignored.\n", arg.c_str());
     }
     return defaultFrames;
 }
-
-
+ 
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 //  makeGif
 //
@@ -531,13 +531,13 @@ inline int parseArgs(int argc, char* argv[], int defaultFrames = 10)
 //
 // ─────────────────────────────────────────────────────────────────────────────
 inline void makeGif(const std::string& frameDir,
-    const std::string& frameGlob,
-    const std::string& outGif,
-    int fps = 12)
+                    const std::string& frameGlob,
+                    const std::string& outGif,
+                    int fps = 12)
 {
     std::string inputPattern = frameDir + "/" + frameGlob;
     std::string palette      = frameDir + "/palette.png";
-
+ 
     // -- Pass 1: generate palette ---------------------------------------------
     std::string pass1 =
         "ffmpeg -y"
@@ -546,17 +546,17 @@ inline void makeGif(const std::string& frameDir,
         " -vf \"palettegen=stats_mode=full\""
         " \""           + palette + "\""
         " 2>/dev/null";
-
+ 
     fprintf(stderr, "GIF pass 1: building palette...\n");
     int r1 = std::system(pass1.c_str());
     if (r1 != 0) {
         fprintf(stderr, "Warning: ffmpeg palette pass failed (exit %d).\n"
-            "  Is ffmpeg installed and on PATH?\n"
-            "  PPM frames are still available in %s/\n",
-            r1, frameDir.c_str());
+                        "  Is ffmpeg installed and on PATH?\n"
+                        "  PPM frames are still available in %s/\n",
+                r1, frameDir.c_str());
         return;
     }
-
+ 
     // -- Pass 2: encode GIF using the palette ---------------------------------
     std::string pass2 =
         "ffmpeg -y"
@@ -566,14 +566,14 @@ inline void makeGif(const std::string& frameDir,
         " -lavfi \"paletteuse=dither=bayer:bayer_scale=3\""
         " \""           + outGif + "\""
         " 2>/dev/null";
-
+ 
     fprintf(stderr, "GIF pass 2: encoding GIF...\n");
     int r2 = std::system(pass2.c_str());
     if (r2 != 0) {
         fprintf(stderr, "Warning: ffmpeg encoding pass failed (exit %d).\n", r2);
         return;
     }
-
+ 
     std::filesystem::remove(palette);
     fprintf(stderr, "GIF saved: %s\n", outGif.c_str());
 }
@@ -584,3 +584,4 @@ size_t extractResolution(const std::string& dir) {
         throw std::runtime_error("Cannot infer resolution from dir name: " + dir);
     return std::stoul(dir.substr(pos + 1));
 }
+
