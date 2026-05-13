@@ -4,6 +4,12 @@
 //
 // Compile (macOS, g++-15 + OpenMP):
 //   g++-15 -fopenmp -std=c++17 step2_main_bin.cpp -o step2_main_bin
+/* g++-15 -fopenmp -std=c++17 \
+-isysroot "$(xcrun --show-sdk-path)" \
+-I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
+step2_main_bin.cpp -o step2_main_bin
+
+ */
 //
 // Usage:
 //   ./step2_main_bin                                      -- renders 10 frames (default)
@@ -86,8 +92,8 @@ static void integrate(const Ray& ray, float tMin, float tMax,
         L += emColor * dens * emissivity * T * stride;
 
         // Synchrotron (PWN) contribution
-        if (syn > 0.02f)
-            L += synchColor * syn * emissivity * 0.04f * T * stride;
+        // if (syn > 0.02f)
+        //     L += synchColor * syn * emissivity * 0.04f * T * stride;
     }
 }
 
@@ -192,7 +198,7 @@ static void render(int numFrames, size_t N, const std::string& binDir)
  
                 // Add star contributions attenuated by nebula transmittance
                 const float starBrightness = 40.f;
-                L += starContribution(ray, stars, starBrightness) * T;
+                //L += starContribution(ray, stars, starBrightness) * T;
  
                 // Tone map and write to buffer
                 vec3 mapped = reinhard(background_color * T + L);

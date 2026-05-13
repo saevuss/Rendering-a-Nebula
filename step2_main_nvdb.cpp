@@ -4,12 +4,19 @@
 // Compile (macOS, g++-15 + OpenMP):
 /*      g++-15 -fopenmp -std=c++17 \
         -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
-         step2_main_nvdb.cpp -o step2_main_nvdb        */ 
+         step2_main_nvdb.cpp -o step2_main_nvdb        
+ g++-15 -fopenmp -std=c++17 \
+-isysroot $(xcrun --show-sdk-path) \
+-I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
+step2_main_nvdb.cpp -o step2_main_nvdb        
+         
+         
+         */ 
 //
 // Usage:
 //   ./step2_main_nvdb                                      -- renders 10 frames (default)
 //   ./step2_main_nvdb 24 or ./step2_main_nvdb --frames 24        -- renders 24 frames
-//   ./step2_main_nvdb -f 1                                 -- single frame, no GIF produced
+//   ./step2_main_nvdb -f 1        a                         -- single frame, no GIF produced
 //   ./step2_main_nvdb --nvdb-dir output/nvdb_512                  -- to specify where to take file .bin and .nvdb
 //
 //
@@ -257,7 +264,7 @@ static void render(int numFrames, const std::string& nvdbDir)
                 imgbuf[off+2] = (unsigned char)(std::clamp(mapped.z, 0.f, 1.f) * 255.f);
             }
  
-            #pragma omp critical
+            #pragma omp criticals
             { fprintf(stderr, "\r%.1f%%", 100.f * ++rowsDone / height); }
         }
  

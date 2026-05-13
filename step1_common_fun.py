@@ -17,7 +17,6 @@ def save_nvdb(volume_np: np.ndarray, grid_name: str, output_path: str) -> None:
     grid.copyFromArray(volume_np)
     grid.transform = vdb.createLinearTransform(voxelSize=VOXEL_SIZE)
     grid.transform.postTranslate(TRANSLATION)
-    grid.transform.preTranslate(TRANSLATION)
     grid.prune(0.0)
     handle = nanovdb.tools.openToNanoVDB(grid)
     handle.floatGrid().setGridName(grid_name)

@@ -12,7 +12,7 @@ SYNCH_FRAC = 0.25
 
 def build_rotation():
     inc   = 27.0 * np.pi / 180.0
-    PA_NW = (124.0 - 180.0) * np.pi / 180.0
+    PA_NW = 124.0 * np.pi / 180.0
     target_axis = np.array([-np.sin(PA_NW), +np.cos(PA_NW), -np.sin(inc)])
     target_axis /= np.linalg.norm(target_axis)
     obj_jet_axis = np.array([-0.50354443, -0.6559642, 0.56227571])
@@ -30,6 +30,8 @@ def load_and_rotate_mesh(path, R):
     scale  = (verts.max(axis=0) - verts.min(axis=0)).max() / 2
     verts  = (verts - center) / scale   # [-1, 1]
     verts  = verts @ R.T
+    verts[:, 0] = -verts[:, 0] ## flip X to align for convention FITS/RA
+    verts -= verts.mean(axis=0)
     verts *= SYNCH_FRAC
     return trimesh.Trimesh(vertices=verts.astype(np.float32),
                            faces=mesh.faces, process=False)
@@ -81,6 +83,6 @@ if __name__ == "__main__":
     os.makedirs(bin_dir,  exist_ok=True)
     os.makedirs(nvdb_dir, exist_ok=True)
 
-    save_bin (vol,               os.path.join(bin_dir,  "synchrotron.bin"))
-    save_nvdb(vol, "synchrotron", os.path.join(nvdb_dir, "syn.nvdb"))
+    save_bin (vol,               os.path.join(bin_dir,  "syn.bin"))
+    save_nvdb(vol, "syn", os.path.join(nvdb_dir, "syn.nvdb"))
     print("  [synchrotron] ok")
