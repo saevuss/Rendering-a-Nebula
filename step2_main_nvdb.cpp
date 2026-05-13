@@ -264,7 +264,7 @@ static void render(int numFrames, const std::string& nvdbDir)
                 imgbuf[off+2] = (unsigned char)(std::clamp(mapped.z, 0.f, 1.f) * 255.f);
             }
  
-            #pragma omp criticals
+            #pragma omp critical
             { fprintf(stderr, "\r%.1f%%", 100.f * ++rowsDone / height); }
         }
  
