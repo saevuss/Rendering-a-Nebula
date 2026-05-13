@@ -5,7 +5,7 @@
 /*      g++-15 -fopenmp -std=c++17 \
         -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
          step2_main_nvdb.cpp -o step2_main_nvdb        
- g++-15 -fopenmp -std=c++17 \
+ g++-15 -fopenmp -std=c++17 -O3 -march=native \
 -isysroot $(xcrun --show-sdk-path) \
 -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
 step2_main_nvdb.cpp -o step2_main_nvdb        
@@ -114,8 +114,8 @@ static void integrate(const Ray& ray,
         // Synchrotron (PWN) — sampled even in low-density voxels
         float syn = synSampler(idxPos);
         syn = pow(syn, 1.5f);
-        if (syn > 0.02f)
-            L += synchColor * syn * emissivity * 0.04f * T * worldStride;
+        // if (syn > 0.02f)
+        //     L += synchColor * syn * emissivity * 0.08f * T * worldStride;
     }
 }
 

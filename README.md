@@ -31,7 +31,7 @@ The first stage renders only the thermal filament structure reconstructed from t
 ### Nebula with synchrotron emission
 The synchrotron component of the pulsar wind nebula is rendered separately and integrated as an independent emission channel.
 <p align="center">
-  <img src="results/no_star.png" width="350">
+  <img src="results/no_star_yes_syn.png" width="350">
 </p>
 
 ---
@@ -39,7 +39,7 @@ The synchrotron component of the pulsar wind nebula is rendered separately and i
 ### Nebula with stars
 Background stars from the Gaia DR3 catalogue are projected into world space and composited after volume integration.
 <p align="center">
-  <img src="results/nebula_complete.png" width="350">
+  <img src="results/yes_star_yes_syn.png" width="350">
 </p>
 
 ---
@@ -48,20 +48,17 @@ Background stars from the Gaia DR3 catalogue are projected into world space and 
 
 ### Rotation without synchrotron
 <p align="center">
-  <img src="results/nebula.gif" width="350">
+  <img src="results/anim_noSyn.gif" width="350">
 </p>
 
 ---
 
 ### Rotation with synchrotron
 <p align="center">
-  <img src="results/nebula_syn.gif" width="350">
+  <img src="results/anim_syn.gif" width="350">
 </p>
 
 ---
-
-## How to run the code
-
 ### Requirements
 
 **Python** (Step 1):
