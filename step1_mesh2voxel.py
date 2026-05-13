@@ -6,7 +6,7 @@ import argparse
 import trimesh # type: ignore
 from scipy.ndimage import gaussian_filter
 from noise import pnoise3 # type: ignore
-from common_fun import RESOLUTION, save_nvdb, save_bin, log_stretch, norm01 # type: ignore
+from step1_common_fun import RESOLUTION, save_nvdb, save_bin, log_stretch, norm01 # type: ignore
 
 SYNCH_FRAC = 0.25
 

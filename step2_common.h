@@ -350,41 +350,38 @@ inline vec3 starContribution(const Ray& ray, const std::vector<Star>& stars,
 //  Maps emission-line ratio data from SITELLE/ORB (Martin et al. 2021) to RGB 
 //  (explained in the report)
 // ─────────────────────────────────────────────────────────────────────────────
-inline vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii,
-                        float density, float vel)
+inline vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float vel)
 {
-    const vec3 ha_color  {0.05f, 0.20f, 0.85f}; // implicit Hα  → blue/violet
-    const vec3 nii_color {1.00f, 0.10f, 0.00f}; // [NII]        → red
-    const vec3 sii_color {1.00f, 0.60f, 0.00f}; // [SII]        → orange
+    // 1. Diagnostic False-Color Palette
+    vec3 ha_color  { 0.02f, 0.25f, 0.90f }; 
+    vec3 nii_color { 0.95f, 0.05f, 0.05f }; 
+    vec3 sii_color { 1.00f, 0.50f, 0.00f }; 
 
-    // ── Blend 1: NII/Hα ─────────────────────────────────────────────────────
-    float t_nii = std::clamp(nii_ha * 5.0f, 0.f, 1.f);
-    vec3 baseColor{
-        ha_color.x*(1.f-t_nii) + nii_color.x*t_nii,
-        ha_color.y*(1.f-t_nii) + nii_color.y*t_nii,
-        ha_color.z*(1.f-t_nii) + nii_color.z*t_nii
-    };
+    // 2. Direct Input Clamping (Linear Physical Space)
+    float t_nii = std::clamp(nii_ha, 0.f, 1.f);
+    float t_sii = std::clamp(sii_ha, 0.f, 1.f);
 
-    // ── Blend 2: SII/Hα ─────────────────────────────────────────────────────
-    float t_sii = std::clamp(sii_ha * 4.5f, 0.f, 1.f);
-    baseColor.x = baseColor.x*(1.f-t_sii) + sii_color.x*t_sii;
-    baseColor.y = baseColor.y*(1.f-t_sii) + sii_color.y*t_sii;
-    baseColor.z = baseColor.z*(1.f-t_sii) + sii_color.z*t_sii;
+    // 3. Additive-Weighted Radiance Mixing
+    float w_ha  = (1.f - t_nii) * (1.f - t_sii) * 0.6f;
+    float w_nii = t_nii * (1.f - t_sii * 0.4f);
+    float w_sii = t_sii;
 
-    // ── Blend 3: electron density (SII6716/SII6731) ──────────────────────────
+    vec3 baseColor = ha_color * w_ha + nii_color * w_nii + sii_color * w_sii;
+
+    // 4. Electron Density Modulation (Volumetric Chiaroscuro)
     if (density > 0.f && sii_sii > 0.05f) {
-        float t_dense = std::clamp((1.f - sii_sii) * 0.4f, 0.f, 1.f);
-        baseColor.x *= (1.f - t_dense * 0.3f);
-        baseColor.y *= (1.f - t_dense * 0.5f);
-        baseColor.z *= (1.f - t_dense * 0.2f);
+        float t_dense = std::clamp((1.f - sii_sii) * 0.5f, 0.f, 1.f);
+        baseColor *= (1.f - t_dense * 0.5f);
     }
 
-    // ── Blend 4: Doppler velocity tint ──────────────────────────────────────
+    // 5. Kinematic Doppler Shift
     if (density > 0.f && vel > 0.f) {
-        float doppler  = (vel - 0.5f) * 2.f;  // map [0, 1] → [-1, +1]
-        const float strength = 0.15f;
-        baseColor.x = std::clamp(baseColor.x + doppler * strength, 0.f, 1.f); // R ↑ with redshift
-        baseColor.z = std::clamp(baseColor.z - doppler * strength, 0.f, 1.f); // B ↑ with blueshift
+        float doppler  = (vel - 0.5f) * 2.f; 
+        float strength = 0.12f;
+        baseColor.x += doppler * strength;
+        baseColor.z -= doppler * strength;
+        baseColor.x = std::clamp(baseColor.x, 0.f, 1.f);
+        baseColor.z = std::clamp(baseColor.z, 0.f, 1.f);
     }
 
     return baseColor;

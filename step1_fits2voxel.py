@@ -2,8 +2,7 @@
 import numpy as np
 from astropy.io import fits # type: ignore
 import os
-from common_fun import RESOLUTION, save_nvdb, save_bin, log_stretch, norm01 # type: ignore
-
+from step1_common_fun import RESOLUTION, log_stretch_natural, save_nvdb, save_bin, log_stretch, norm01 # type: ignore
 FILES = [
     "fits/3dmap_XYZflux.fits",
     "fits/3dmap_XYZnii_ha.fits",
@@ -56,7 +55,8 @@ def voxelize(fits_path, resolution, center, scale, percentile_clip=99.5):
 
     idx  = _xyz_to_idx(xyz, center, scale, resolution)
     grid = _scatter_average(idx, val, resolution)
-    grid = log_stretch(norm01(grid), factor=9.0)
+    grid = log_stretch_natural(grid)
+    grid = np.ascontiguousarray(grid.transpose(2, 1, 0))  # ZYX → XYZ
     return grid.astype('<f4')
 
 def voxelize_vel(fits_path, resolution, center, scale):
@@ -66,13 +66,16 @@ def voxelize_vel(fits_path, resolution, center, scale):
     val = data[:, 3].astype(np.float32)
 
     idx = _xyz_to_idx(xyz, center, scale, resolution)
-    idx[:, 0] = (resolution - 1) - idx[:, 0]   # flip RA
+    #idx[:, 0] = (resolution - 1) - idx[:, 0]   # flip RA
 
     grid = _scatter_average(idx, val, resolution)
 
     mask = grid != 0
-    vmin, vmax = grid[mask].min(), grid[mask].max()
-    grid[mask] = (grid[mask] - vmin) / (vmax - vmin)
+    v_min = grid[mask].min()
+    v_max = grid[mask].max()
+    abs_max = max(abs(v_min), abs(v_max))
+    grid[mask] = (grid[mask] / (abs_max + 1e-9)) * 0.5 + 0.5
+    grid = np.ascontiguousarray(grid.transpose(2, 1, 0))  # ZYX → XYZ
 
     return grid.astype('<f4')
 

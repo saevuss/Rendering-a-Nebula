@@ -42,8 +42,8 @@ static void integrate(const Ray& ray,
                       std::default_random_engine& rng,
                       std::uniform_real_distribution<float>& dist)
 {
-    const float sigma_t    = 0.45f;
-    const float emissivity = 12.f;
+    const float sigma_t    = 0.1f;
+    const float emissivity = 5.5f;
     const vec3  synchColor {0.15f, 0.55f, 0.85f};
 
     T = 1.f;
@@ -178,7 +178,7 @@ static void render(int numFrames, const std::string& nvdbDir)
     }
  
     // ── Star catalog ──────────────────────────────────────────────────────────
-    std::vector<Star> stars = loadStars("gaia_stars.csv");
+    std::vector<Star> stars = loadStars("input_data/gaia_stars.csv");
  
     // ── Image buffer ──────────────────────────────────────────────────────────
     constexpr size_t width  = 800;
@@ -218,7 +218,7 @@ static void render(int numFrames, const std::string& nvdbDir)
         fprintf(stderr, "\n=== Frame %d / %d ===\n", frame+1, numFrames);
  
         const float angle  = 2.f * (float)M_PI * frame / numFrames;
-        const Matrix cam   = buildOrbitCamera(angle, 120.f, gridCenter);
+        const Matrix cam   = buildOrbitCamera(angle, 100.f, gridCenter);
         const vec3 rayOrig = transformPoint(cam, {0,0,0});
  
         std::atomic<int> rowsDone{0};
