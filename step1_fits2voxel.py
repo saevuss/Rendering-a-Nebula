@@ -3,7 +3,6 @@ import numpy as np
 from astropy.io import fits # type: ignore
 import os
 from step1_common_fun import RESOLUTION, log_stretch_natural, save_nvdb, save_bin, log_stretch, norm01 # type: ignore
-
 FILES = [
     "fits/3dmap_XYZflux.fits",
     "fits/3dmap_XYZnii_ha.fits",
@@ -67,7 +66,7 @@ def voxelize_vel(fits_path, resolution, center, scale):
     val = data[:, 3].astype(np.float32)
 
     idx = _xyz_to_idx(xyz, center, scale, resolution)
-    # idx[:, 0] = (resolution - 1) - idx[:, 0]   # flip RA
+    #idx[:, 0] = (resolution - 1) - idx[:, 0]   # flip RA
 
     grid = _scatter_average(idx, val, resolution)
 
@@ -77,6 +76,7 @@ def voxelize_vel(fits_path, resolution, center, scale):
     abs_max = max(abs(v_min), abs(v_max))
     grid[mask] = (grid[mask] / (abs_max + 1e-9)) * 0.5 + 0.5
     grid = np.ascontiguousarray(grid.transpose(2, 1, 0))  # ZYX → XYZ
+
     return grid.astype('<f4')
 
 if __name__ == "__main__":
@@ -122,5 +122,5 @@ if __name__ == "__main__":
     os.makedirs(nvdb_dir, exist_ok=True)
 
     for name, vol in grids.items():
-        #save_bin (vol, os.path.join(bin_dir,  f"{name}.bin"))
+        save_bin (vol, os.path.join(bin_dir,  f"{name}.bin"))
         save_nvdb(vol,  name, os.path.join(nvdb_dir, f"{name}.nvdb"))

@@ -1,6 +1,6 @@
 # step1_common.py is a file containing all the functions that are 
 # used both by step1_fits2voxel.py and step1_mesh2voxel.py
-#from matplotlib.pyplot import grid
+
 import numpy as np
 import openvdb as vdb
 import nanovdb, nanovdb.io, nanovdb.tools # type: ignore
@@ -31,10 +31,8 @@ def log_stretch(grid: np.ndarray, factor: float = 9.0) -> np.ndarray:
     return np.log1p(grid * factor) / np.log1p(factor)
 
 def log_stretch_natural(grid: np.ndarray) -> np.ndarray:
-    """
-    Compressione logaritmica naturale auto-consistente.
-    Mappa il dato grezzo in [0, 1] riscalandolo per il logaritmo del picco massimo reale.
-    """
+    """ Logaritmic natural auto-consistent compression. Maps the raw data 
+    in [0, 1] rescaling it with the logarithm of the maximum real peak. """
     m = grid.max()
     if m <= 0:
         return grid
