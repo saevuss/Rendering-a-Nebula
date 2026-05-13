@@ -95,7 +95,7 @@ sudo apt install g++ libomp-dev libopenvdb-dev
 
 ---
 
-## Download dei dati
+## Data Download
  
 Before starting the rendering, downloads all necessary files and put them in `input_data/`.
  
@@ -150,11 +150,11 @@ g++-15 -fopenmp -std=c++17 step2_main_bin.cpp -o step2_main_bin
 ./step2_main_bin --bin-dir output/bin_256     # different resolution
 ```
 
-#### Versione NanoVDB
+#### NanoVDB Version
 
 ```bash
 
-g++-15 -fopenmp -std=c++17 \
+g++-15 -fopenmp -std=c++17 -O3 -march=native\
     -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
     step2_main_nvdb.cpp -o step2_main_nvdb
 
