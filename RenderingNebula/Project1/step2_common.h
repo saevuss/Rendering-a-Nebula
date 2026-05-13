@@ -122,8 +122,7 @@ struct Grid
             yi < 0 || yi > (int)baseResolution-1 ||
             zi < 0 || zi > (int)baseResolution-1)
             return 0.f;
-        return densityData[(zi * baseResolution + yi) * baseResolution + xi];
-    }
+        return densityData[(xi * baseResolution + yi) * baseResolution + zi];    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
