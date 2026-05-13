@@ -59,8 +59,8 @@ static void integrate(const Ray& ray, float tMin, float tMax,
                       std::uniform_real_distribution<float>& dist)
 {
     const float stepSize  = 0.04f;
-    const float sigma_t   = 0.40f;  // extinction = absorption (scattering negligible)
-    const float emissivity = 7.f;
+    const float sigma_t   = 0.1f;  // extinction = absorption (scattering negligible)
+    const float emissivity = 5.5f;
     const vec3  synchColor{0.15f, 0.55f, 0.85f}; // PWN blue
 
     const size_t numSteps = (size_t)std::ceil((tMax - tMin) / stepSize);
@@ -92,8 +92,8 @@ static void integrate(const Ray& ray, float tMin, float tMax,
         L += emColor * dens * emissivity * T * stride;
 
         // Synchrotron (PWN) contribution
-        // if (syn > 0.02f)
-        //     L += synchColor * syn * emissivity * 0.04f * T * stride;
+        if (syn > 0.02f)
+             L += synchColor * syn * emissivity * 0.04f * T * stride;
     }
 }
 
@@ -163,7 +163,7 @@ static void render(int numFrames, size_t N, const std::string& binDir)
         const float angle = 2.f * (float)M_PI * frame / numFrames;
  
         const vec3   gridCenter{0.f, 0.f, 0.f}; // bin grids are centred at origin
-        const Matrix cam     = buildOrbitCamera(angle, 120.f, gridCenter);
+        const Matrix cam     = buildOrbitCamera(angle, 100.f, gridCenter);
         const vec3   rayOrig = transformPoint(cam, {0,0,0});
  
         std::atomic<int> rowsDone{0};
@@ -198,7 +198,7 @@ static void render(int numFrames, size_t N, const std::string& binDir)
  
                 // Add star contributions attenuated by nebula transmittance
                 const float starBrightness = 40.f;
-                //L += starContribution(ray, stars, starBrightness) * T;
+                L += starContribution(ray, stars, starBrightness) * T;
  
                 // Tone map and write to buffer
                 vec3 mapped = reinhard(background_color * T + L);
