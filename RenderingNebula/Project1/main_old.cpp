@@ -472,110 +472,35 @@ float phaseHG(const vec3& view_dir, const vec3& light_dir, const float& g)
 
 vec3 nebulaColor(float nii_ha, float sii_ha, float sii_sii, float density, float vel)
 {
-	// Mappatura a falsi colori basata sui dati FITS disponibili
-	// (Martin et al. 2021, SITELLE/ORB).
-	//
-	// I dati disponibili sono RAPPORTI di righe di emissione, non intensità
-	// assolute. Tutti i valori sono normalizzati in [0,1] dopo log-stretch
-	// (normalizzazione lineare per vel).
-	//
-	// Range reali misurati a runtime sui voxel campionati:
-	//   nii_ha  = [0.0000, 0.5544]
-	//   sii_ha  = [0.0000, 0.6435]
-	//   vel     = [0.0003, 0.9878] — centro fisico a 0.5 (range simmetrico)
-	//
-	// NOTA sulla palette: la Hubble Palette standard (SHO) richiederebbe
-	// tre canali: SII→rosso, Hα→verde, OIII→blu. Nei dati SITELLE non sono
-	// presenti né Hα assoluto né OIII — solo i rapporti NII/Hα e SII/Hα.
-	// Si adotta quindi una palette alternativa fisicamente motivabile:
-	//
-	//   Hα implicito (nii_ha e sii_ha bassi) → blu/viola
-	//     — coerente con l'aspetto ottico reale della Crab a banda stretta,
-	//       dove le zone a bassa emissione di NII appaiono dominate dal
-	//       continuo e dall'emissione diffusa.
-	//   NII dominante (nii_ha alto) → rosso
-	//     — ejecta freddi e densi nella shell esterna (658 nm).
-	//   SII forte (sii_ha alto)     → arancio
-	//     — fronte di shock al bordo della nebulosa (671/673 nm).
-	//   SII6716/6731 (sii_sii)      → diagnostico densità elettronica,
-	//                                  modula saturazione (non ha colore proprio).
-	//   vel                         → Doppler shift cromatico sottile.
-	//
-	// NOTA: il sincrotrone della PWN non è presente nei FITS SITELLE.
-	// Andrà aggiunto come componente separata in futuro.
-	//
-	// FISICA dei rapporti (dal paper Martin et al. 2021):
-	// - NII/Ha: basso = gas più ionizzato, alto = ejecta freddi e densi.
-	// - SII/Ha: alto dove il fronte di espansione comprime il gas termico.
-	// - SII6716/SII6731: rapporto alto (~1.4) = gas rarefatto (~100 cm^-3),
-	//   rapporto basso (~0.4) = gas denso (~10000 cm^-3).
-	//   Dopo normalizzazione: valore basso nel bin = gas denso
-	//   (il minimo fisico 0.4 diventa 0 nel bin).
+	// 1. Palette False-Color (Proxy H-alpha blu, NII rosso, SII arancio)
+	vec3 ha_color  { 0.02f, 0.25f, 0.90f }; 
+	vec3 nii_color { 0.95f, 0.05f, 0.05f }; 
+	vec3 sii_color { 1.00f, 0.50f, 0.00f }; 
 
-	vec3 ha_color  { 0.05f, 0.2f,  0.85f  }; // Hα implicito → blu/viola
-	vec3 nii_color { 1.0f,  0.1f,  0.0f  }; // NII → rosso (658 nm)
-	vec3 sii_color { 1.0f,  0.6f,  0.0f  }; // SII → arancio (671/673 nm)
+	// 2. Normalizzazione combinata con Curva Gamma
+	// nebulaColor — fisica pura, nessuna correzione display
+	float t_nii = std::clamp(nii_ha, 0.f, 1.f);
+	float t_sii = std::clamp(sii_ha, 0.f, 1.f);
 
-	// --- Blend 1: NII/Ha → mix Hα implicito / NII ---
-	// t_nii=0: NII assente, Hα domina → blu/viola
-	// t_nii=1: NII domina → rosso
-	// Fattore 3.5: porta il range reale [0, 0.55] a saturare correttamente
-	// in [0,1] senza che il blu/viola schiacci i filamenti rossi.
-	float t_nii = std::clamp(nii_ha * 5.0f, 0.f, 1.f);  
-	vec3 baseColor{
-		ha_color.x * (1.f - t_nii) + nii_color.x * t_nii,
-		ha_color.y * (1.f - t_nii) + nii_color.y * t_nii,
-		ha_color.z * (1.f - t_nii) + nii_color.z * t_nii
-	};
+	// 3. Blend Additivo Evoluto (Metodo Claude/Gemini)
+	float w_ha  = (1.f - t_nii) * (1.f - t_sii) * 0.6f;
+	float w_nii = t_nii * (1.f - t_sii * 0.4f);
+	float w_sii = t_sii;
 
-	// --- Blend 2: SII/Ha → spinge verso arancio ---
-	// alto SII/Ha = fronte di shock al bordo della nebulosa.
-	// Fattore 3.0: porta il range reale [0, 0.64] a coprire bene [0,1].
-	float t_sii = std::clamp(sii_ha * 4.5f, 0.f, 1.f);  
-	baseColor.x = baseColor.x * (1.f - t_sii) + sii_color.x * t_sii;
-	baseColor.y = baseColor.y * (1.f - t_sii) + sii_color.y * t_sii;
-	baseColor.z = baseColor.z * (1.f - t_sii) + sii_color.z * t_sii;
+	vec3 baseColor = ha_color * w_ha + nii_color * w_nii + sii_color * w_sii;
 
-	// --- Blend 3: SII6716/SII6731 → densità elettronica ---
-	// Non è una riga spettrale con un colore proprio — è un rapporto
-	// diagnostico che indica quanto è compresso il gas.
-	// Lo usiamo per modulare la saturazione del colore base:
-	//   gas denso   (sii_sii basso → t_dense alto) → desatura, tende al scuro
-	//   gas rarefatto (sii_sii alto → t_dense basso) → mantiene saturazione
-	// La soglia sii_sii > 0.05 esclude i voxel senza misura SII6716/6731
-	// (sii_sii=0 significa assenza di dato, non gas denso).
+	// 4. Modulazione densità (Chiaroscuro)
 	if (density > 0.f && sii_sii > 0.05f) {
-		float t_dense = std::clamp((1.f - sii_sii) * 0.4f, 0.f, 1.f);
-		baseColor.x *= (1.f - t_dense * 0.3f); // desatura R leggermente
-		baseColor.y *= (1.f - t_dense * 0.5f); // desatura G più forte
-		baseColor.z *= (1.f - t_dense * 0.2f); // desatura B poco
+		float t_dense = std::clamp((1.f - sii_sii) * 0.5f, 0.f, 1.f);
+		baseColor *= (1.f - t_dense * 0.5f);
 	}
 
-	// --- Blend 4: velocità radiale → Doppler shift cromatico ---
-	//
-	// FISICA: la nebulosa si espande a ±1500 km/s. Le righe di emissione
-	// delle zone che si allontanano da noi (redshift) appaiono spostate
-	// verso il rosso; quelle che si avvicinano (blueshift) verso il blu.
-	// Questo è il meccanismo usato da SITELLE/ORB per ricostruire la
-	// struttura 3D: ogni filamento ha una coordinata Z ricavata dalla
-	// sua velocità radiale misurata.
-	//
-	// Nel bin normalizzato (normalizzazione lineare su range fisico):
-	//   0.0   = voxel vuoto (nessun dato)
-	//   0.5   = gas fermo (vel ≈ 0 km/s) — range misurato [0.0003, 0.9878],
-	//           quasi simmetrico attorno a 0.5.
-	//   > 0.5 = redshift (gas che si allontana da noi)
-	//   < 0.5 = blueshift (gas che si avvicina a noi)
-	//
-	// La soglia density > 0 && vel > 0 esclude i voxel vuoti dove vel=0.0
-	// non ha significato fisico.
-	// strength = 0.15 è volutamente sottile: il Doppler è un effetto
-	// secondario rispetto alla composizione chimica (NII, SII).
+	// 5. Doppler Shift Cinematico (Centro fisico a 0.5)
 	if (density > 0.f && vel > 0.f) {
-		float doppler  = (vel - 0.5f) * 2.f; // in [-1, +1]
-		float strength = 0.15f;
-		baseColor.x += doppler * strength; // R: sale con redshift
-		baseColor.z -= doppler * strength; // B: sale con blueshift
+		float doppler  = (vel - 0.5f) * 2.f; 
+		float strength = 0.12f;
+		baseColor.x += doppler * strength;
+		baseColor.z -= doppler * strength;
 		baseColor.x = std::clamp(baseColor.x, 0.f, 1.f);
 		baseColor.z = std::clamp(baseColor.z, 0.f, 1.f);
 	}
@@ -698,8 +623,8 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 	std::default_random_engine& rng,
 	std::uniform_real_distribution<float>& dist)
 {
-	float sigma_t  = 0.45f;
-	float emissivity = 12.f;
+	float sigma_t  = 0.1f;
+	float emissivity = 5.5f;
 	T = 1.0f;
 	L = vec3{ 0.f, 0.f, 0.f };
 
@@ -746,6 +671,7 @@ void integrate(const Ray& ray, const float& tMin, const float& tMax,
 			float vel     = velSampler(idxPos);
 
 			vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, density, vel);
+
 
 			// stride in index space — lo convertiamo in world space per
 			// avere unità fisiche coerenti con sigma_t
@@ -845,11 +771,17 @@ void render()
 	try{
 		
 		// Chiediamo a NanoVDB di caricare ogni griglia specificando il suo NOME
-		densityHandle = nanovdb::io::readGrid("crab_nebula.nvdb", "density");
-		niiHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "nii_ha");
-		siiHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "sii_ha");
-		siiSiiHandle  = nanovdb::io::readGrid("crab_nebula.nvdb", "sii_sii");
-		velHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "vel");
+		//densityHandle = nanovdb::io::readGrid("crab_nebula.nvdb", "density");
+		//niiHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "nii_ha");
+		//siiHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "sii_ha");
+		//siiSiiHandle  = nanovdb::io::readGrid("crab_nebula.nvdb", "sii_sii");
+		//velHandle     = nanovdb::io::readGrid("crab_nebula.nvdb", "vel");
+		// dopo (nuovi file separati)
+		densityHandle = nanovdb::io::readGrid("output/nvdb_512/density.nvdb");
+		niiHandle     = nanovdb::io::readGrid("output/nvdb_512/nii_ha.nvdb");
+		siiHandle     = nanovdb::io::readGrid("output/nvdb_512/sii_ha.nvdb");
+		siiSiiHandle  = nanovdb::io::readGrid("output/nvdb_512/sii_sii.nvdb");
+		velHandle     = nanovdb::io::readGrid("output/nvdb_512/vel.nvdb");
 
 		// Ora ogni Handle contiene SOLO la sua griglia, che sarà quindi all'indice 0!
 		densityGrid = densityHandle.grid<float>(0);
@@ -1002,6 +934,7 @@ void render()
 				vec3 pixelColor = background_color * transmittance + L;
 
 				size_t pixelOffset = (j * width + i) * 3;
+
 
 				vec3 mapped = reinhard(pixelColor);
 				imgbuf[pixelOffset + 0] = static_cast<unsigned char>(std::clamp(mapped.x, 0.f, 1.f) * 255);
