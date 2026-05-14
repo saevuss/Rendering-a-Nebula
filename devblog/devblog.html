@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rendering the Crab — Dev Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --void: #05030f;
+  --deep: #0b0720;
+  --nebula-blue: #3b2d8a;
+  --nebula-violet: #6b3fa0;
+  --nebula-pink: #c0527a;
+  --nebula-orange: #e8834a;
+  --nebula-teal: #2d9fa8;
+  --star-white: #e8e4f5;
+  --dim: #7a6fa8;
+  --faint: #302850;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--void);
+  color: var(--star-white);
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 18px;
+  line-height: 1.75;
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+
+.starfield { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.star {
+  position: absolute; border-radius: 50%; background: white;
+  animation: twinkle var(--d, 3s) ease-in-out infinite alternate;
+  opacity: var(--o, 0.6);
+}
+@keyframes twinkle {
+  from { opacity: var(--o, 0.6); transform: scale(1); }
+  to   { opacity: calc(var(--o, 0.6) * 0.3); transform: scale(0.7); }
+}
+
+.nebula-bg {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse 60% 40% at 20% 30%, rgba(59,45,138,0.18) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 60% at 80% 70%, rgba(192,82,122,0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 30% at 60% 20%, rgba(45,159,168,0.10) 0%, transparent 70%);
+}
+
+.wrapper { position: relative; z-index: 1; max-width: 780px; margin: 0 auto; padding: 0 28px; }
+
+/* HEADER */
+header { padding: 100px 0 60px; border-bottom: 1px solid var(--faint); margin-bottom: 80px; }
+
+.header-label {
+  font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.25em;
+  color: var(--nebula-teal); text-transform: uppercase; margin-bottom: 20px; display: block;
+  animation: fadeUp 0.8s ease both;
+}
+
+header h1 {
+  font-family: 'Cormorant Garamond', serif; font-weight: 300;
+  font-size: clamp(2.8rem, 6vw, 4.5rem); line-height: 1.05;
+  letter-spacing: -0.02em; color: var(--star-white);
+  animation: fadeUp 0.8s 0.1s ease both;
+}
+header h1 em {
+  font-style: italic;
+  background: linear-gradient(135deg, var(--nebula-violet), var(--nebula-pink));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+
+.header-meta {
+  margin-top: 24px; font-family: 'Space Mono', monospace; font-size: 12px; color: var(--dim);
+  animation: fadeUp 0.8s 0.2s ease both; display: flex; gap: 32px; flex-wrap: wrap;
+}
+.header-meta span::before { content: '→ '; color: var(--nebula-teal); }
+
+header p.subtitle {
+  margin-top: 28px; font-size: 1.1rem; color: rgba(232,228,245,0.65);
+  font-style: italic; max-width: 580px; animation: fadeUp 0.8s 0.3s ease both;
+}
+
+/* TIMELINE */
+.timeline { position: relative; padding-left: 40px; }
+.timeline::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
+  background: linear-gradient(to bottom, var(--nebula-violet), var(--nebula-pink) 40%, transparent);
+  opacity: 0.4;
+}
+
+/* ENTRY */
+.entry {
+  position: relative; margin-bottom: 90px;
+  opacity: 0; transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.entry.visible { opacity: 1; transform: none; }
+.entry::before {
+  content: ''; position: absolute; left: -44px; top: 10px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--nebula-violet);
+  box-shadow: 0 0 12px var(--nebula-violet), 0 0 24px rgba(107,63,160,0.4);
+}
+
+.entry-date {
+  font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 0.2em;
+  color: var(--nebula-teal); text-transform: uppercase; margin-bottom: 10px; display: block;
+}
+
+.tag-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.entry-tag {
+  display: inline-block; font-family: 'Space Mono', monospace; font-size: 10px;
+  letter-spacing: 0.12em; color: var(--nebula-orange);
+  border: 1px solid rgba(232,131,74,0.35); padding: 2px 10px; border-radius: 2px; text-transform: uppercase;
+}
+.entry-tag.blue   { color: var(--nebula-teal);  border-color: rgba(45,159,168,0.35); }
+.entry-tag.violet { color: #a07de0;              border-color: rgba(160,125,224,0.35); }
+
+.entry h2 {
+  font-family: 'Cormorant Garamond', serif; font-weight: 600;
+  font-size: 1.75rem; line-height: 1.2; margin-bottom: 18px; color: var(--star-white);
+}
+.entry p { color: rgba(232,228,245,0.75); font-size: 1rem; margin-bottom: 14px; }
+.entry p strong { color: var(--star-white); font-weight: 600; }
+.entry p em { color: rgba(232,228,245,0.9); font-style: italic; }
+
+/* CODE */
+.code-block {
+  background: rgba(11,7,32,0.85); border: 1px solid var(--faint);
+  border-left: 3px solid var(--nebula-violet); border-radius: 4px;
+  padding: 18px 20px; margin: 20px 0; overflow-x: auto;
+}
+.code-block pre {
+  font-family: 'Space Mono', monospace; font-size: 12px;
+  line-height: 1.8; color: #c9c0f0; white-space: pre;
+}
+.code-block .c { color: #5a5280; font-style: italic; }
+.code-block .k { color: #8b7dd8; }
+.code-block .t { color: var(--nebula-teal); }
+.code-block .n { color: var(--nebula-orange); }
+.code-block .s { color: #b07dc0; }
+
+/* SCREENSHOT */
+.screenshot {
+  margin: 28px 0; border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--faint); background: rgba(11,7,32,0.6);
+}
+.screenshot img { width: 100%; display: block; border-radius: 6px 6px 0 0; }
+.screenshot-placeholder {
+  width: 100%; aspect-ratio: 16/9;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, rgba(59,45,138,0.2), rgba(192,82,122,0.1)); gap: 12px;
+}
+.screenshot-placeholder .icon { font-size: 2.2rem; opacity: 0.35; }
+.screenshot-placeholder .label {
+  font-family: 'Space Mono', monospace; font-size: 11px;
+  color: var(--dim); letter-spacing: 0.08em; text-align: center; padding: 0 20px;
+}
+.screenshot-caption {
+  padding: 10px 16px; font-family: 'Space Mono', monospace; font-size: 11px; color: var(--dim);
+  border-top: 1px solid var(--faint); background: rgba(5,3,15,0.4);
+}
+
+.screenshot-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 28px 0; }
+.screenshot-row .screenshot { margin: 0; }
+.screenshot-row .screenshot-placeholder { aspect-ratio: 4/3; }
+
+/* CALLOUT */
+.callout {
+  border-left: 3px solid var(--nebula-pink); padding: 14px 20px; margin: 20px 0;
+  background: rgba(192,82,122,0.08); border-radius: 0 4px 4px 0;
+}
+.callout.teal   { border-left-color: var(--nebula-teal);  background: rgba(45,159,168,0.08); }
+.callout.orange { border-left-color: var(--nebula-orange); background: rgba(232,131,74,0.08); }
+.callout.violet { border-left-color: #a07de0;              background: rgba(160,125,224,0.08); }
+.callout p { font-size: 0.95rem; margin: 0; color: rgba(232,228,245,0.82); }
+.callout strong { color: var(--star-white); }
+
+/* METRICS */
+.metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px; background: var(--faint); border: 1px solid var(--faint);
+  border-radius: 4px; overflow: hidden; margin: 20px 0;
+}
+.metric { background: rgba(11,7,32,0.85); padding: 18px 16px; text-align: center; }
+.metric .val {
+  display: block; font-family: 'Space Mono', monospace;
+  font-size: 1.3rem; color: var(--nebula-violet); margin-bottom: 4px;
+}
+.metric .lbl {
+  font-family: 'Space Mono', monospace; font-size: 10px;
+  color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase;
+}
+
+/* FOOTER */
+footer { border-top: 1px solid var(--faint); padding: 48px 0 80px; text-align: center; }
+footer p { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--dim); line-height: 2.2; }
+footer a { color: var(--nebula-teal); text-decoration: none; }
+footer a:hover { color: var(--star-white); }
+
+.back-top {
+  position: fixed; bottom: 32px; right: 32px; width: 40px; height: 40px;
+  border: 1px solid var(--faint); background: rgba(11,7,32,0.9); color: var(--dim);
+  font-family: 'Space Mono', monospace; font-size: 16px; cursor: pointer; border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.3s, color 0.2s, border-color 0.2s; z-index: 100; text-decoration: none;
+}
+.back-top.show { opacity: 1; }
+.back-top:hover { color: var(--star-white); border-color: var(--nebula-violet); }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="starfield" id="starfield"></div>
+<div class="nebula-bg"></div>
+<a href="#top" class="back-top" id="backTop">↑</a>
+
+<div class="wrapper" id="top">
+
+  <header>
+    <span class="header-label">DH2323 Computer Graphics · KTH Royal Institute of Technology</span>
+    <h1>Rendering the <em>Crab Nebula</em></h1>
+    <div class="header-meta">
+      <span>Giorgia Savo</span>
+      <span>Francesco Filippo Stefanutti</span>
+      <span>Spring 2025</span>
+    </div>
+    <p class="subtitle">A development log of building a physically-based volumetric renderer from scratch — from research and data hunting to a 120-frame orbital animation, one iteration at a time.</p>
+  </header>
+
+  <div class="timeline">
+
+    <!-- 1 -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Phase 1</span>
+      <div class="tag-row"><span class="entry-tag blue">Research</span><span class="entry-tag blue">Literature</span></div>
+      <h2>Deciding What to Build and How</h2>
+
+      <p>The starting idea for the project was rendering a nebula in general. Before writing any code, we spent a significant amount of time understanding what that actually required technically and what had already been done in reasearch and in the industry.</p>
+
+      <p>We slowly started learning about two main pipelines. The first is the visual effects and cinematic science one, which usually starts from a manually modelled mesh or simulations, then voxelises them into a density grid and finally injects procedural noise at render time to recover fine structure. The results are visually stunning, but the geometry does not come from real data. On the astronomy side, tools like DS9 and CARTA can load real spectroscopic datacubes and render them volumetrically, but they use simple ray casting with no absorption, no transmittance, no actual light transport.</em>.</p>
+
+      <div class="callout teal">
+        <p><strong>The gap we decided to occupy:</strong> take real observational data --measured geometry, kinematics, line ratios — and pass it directly to a physically-based ray marcher.</p>
+      </div>
+
+      <p>The rendering technique was clear from the start: <strong>volume ray marching</strong>; for that, we followed the discrete solution to the Radiative Transfer Equation as documented by Scratchapixel. We followed its tutorial carefully — transmittance accumulation, Beer-Lambert law, stochastic jitter — before touching any nebula-specific data.</p>
+
+      <p>What remained open was where to get the data to start from, as we needed a volumetric representation of an actual nebula. That's when we found Martin et al. (2021).</p>
+    </article>
+
+    <!-- 2 -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Phase 2</span>
+      <div class="tag-row"><span class="entry-tag">Data</span><span class="entry-tag blue">SITELLE</span><span class="entry-tag blue">FITS</span></div>
+      <h2>Finding the Data: Martin et al. and the SITELLE Point Cloud</h2>
+
+      <p>Martin et al. (2021) used the SITELLE imaging Fourier transform spectrograph at the Canada-France-Hawaii Telescope to observe the Crab Nebula across the full optical field. The key capability of SITELLE is that it measures a complete emission-line spectrum at every sky pixel simultaneously. From those spectra, the authors extracted, for each detected filament, a radial velocity via the Doppler shift of the emission lines.</p>
+
+      <p>That radial velocity is what makes 3D reconstruction possible. The Crab Nebula expands at ±1500 km/s — filaments moving away appear redshifted, those approaching appear blueshifted. By converting Doppler shift to depth coordinate, Martin et al. reconstructed a three-dimensional point cloud of the thermal ejecta from a single 2D observation. This is the dataset we decided to build everything on.</p>
+
+      <div class="metrics">
+        <div class="metric"><span class="val">416,573</span><span class="lbl">measured points</span></div>
+        <div class="metric"><span class="val">5</span><span class="lbl">scalar fields</span></div>
+        <div class="metric"><span class="val">±1500</span><span class="lbl">km/s expansion</span></div>
+        <div class="metric"><span class="val">FITS</span><span class="lbl">source format</span></div>
+      </div>
+
+      <p>Each point carries five values: an Hα flux used as density proxy; the NII/Hα line ratio; the SII/Hα ratio; the SII 6716/6731 electron density diagnostic; and the radial velocity. What the dataset does <em>not</em> include: absolute Hα intensity (only ratios), any OIII measurement, or the synchrotron continuum of the pulsar wind nebula. The data came as FITS files, the standard format in astronomy; therefore, the first task was reading and understanding the coordinate system and value distributions before any voxelisation.</p>
+    </article>
+
+    <article class="entry" data-entry>
+    <span class="entry-date">Phase 3</span>
+    <div class="tag-row"><span class="entry-tag">Python</span><span class="entry-tag">Voxelisation</span><span class="entry-tag blue">128³</span></div>
+    <h2>First Render: FITS to 128³ Grid to Image</h2>
+
+    <p>The ray marcher needs a uniform grid. Therefore, we decided to start with a voxelisation 
+     that converted the FITS scalar fields into binary grids at a resolution of 
+    <strong>128³</strong>, deliberately low to keep rendering times fast.</p>
+
+    <p>The core operation: for each of the 416,573 input points, compute its 
+    integer voxel index and accumulate the scalar value. The value stored per 
+    voxel is the mean of all points that fall into it.</p>
+
+    <p>The C++ ray marcher at this stage was the one constructed following the 
+    Scratchapixel tutorial, with a simple colour model and even scattering, 
+    which was later removed since its effect is negligible for the Crab Nebula.</p>
+
+    <div class="callout orange">
+        <p><strong>It worked. We managed to obtain the filamentary structure of 
+        the Crab after a few trials.</strong> Seeing the visible structure was a 
+        genuine relief. However, the nebula was monochromatic — the next phase was to 
+        investigate why and how it could be fixed.</p>
+    </div>
+
+    <div class="screenshot">
+      <img src="render1.png" alt="First render 128³">
+      <div class="screenshot-caption">fig 01 — first render from real SITELLE data. 128³ grid, flat 
+      single-colour emission. Far from realistic, but structurally correct.</div>
+    </div>
+    </article>
+
+  <!-- 4 -->
+  <article class="entry" data-entry>
+    <span class="entry-date">Phase 4</span>
+    <div class="tag-row"><span class="entry-tag blue">Log Stretch</span><span class="entry-tag blue">Dynamic Range</span></div>
+    <h2>Log Stretch: Recovering the Faint Filaments</h2>
+
+    <p>We realized that the first render was monochromatic for two reasons: a byte-order mismatch 
+    (FITS is big-endian; fixed with <code>.astype('&lt;f4')</code>), and a linear 
+    normalisation that compressed 99% of voxels to near-zero, so the colour model 
+    was rarely reached.</p>
+
+<p>We fixed it using a logarithmic stretch:</p>
+
+<div class="code-block"><pre><span class="c"># lifts faint structure by compressing the dynamic range</span>
+g_stretched = np.log1p(<span class="n">9</span> * g) / np.log1p(<span class="n">9</span>)</pre></div>
+
+    <div class="screenshot">
+      <img src="render2.png" alt="After log stretch">
+      <div class="screenshot-caption">fig 02 — after logarithmic stretch. The honeycomb network of 
+      filaments becomes clearly legible for the first time.</div>
+    </div>
+
+  </article>
+
+    <!-- 5 -->
+   <article class="entry" data-entry>
+  <span class="entry-date">Phase 5</span>
+  <div class="tag-row"><span class="entry-tag violet">Tone Mapping</span><span class="entry-tag violet">Reinhard</span></div>
+  <h2>Reinhard Tone Mapping</h2>
+
+  <p>The next thing to tackle was the nebula brightness. The ray marcher accumulates unbounded physical radiance, therefore a naive clamp 
+  to [0,1] producew flat saturated white in the densest regions, losing 
+  the structural detail we care about. The solution is tone mapping: compressing the 
+  full dynamic range into displayable values while preserving relative 
+  differences.</p>
+
+  <p>We implemented Reinhard on <strong>luminance</strong> rather than 
+  per-channel, which preserves colour ratios; per-channel Reinhard drives 
+  all three channels toward similar values independently, desaturating the 
+  image.</p>
+
+  <div class="code-block"><pre><span class="c">// luminance-based Reinhard — preserves colour ratios</span>
+<span class="k">vec3</span> reinhard(<span class="k">vec3</span> c, <span class="k">float</span> exposure = <span class="n">1.4f</span>) {
+  c *= exposure;
+  <span class="c">// CIE perceptual weights for sRGB</span>
+  <span class="k">float</span> lum = <span class="n">0.2126f</span>*c.x + <span class="n">0.7152f</span>*c.y + <span class="n">0.0722f</span>*c.z;
+  <span class="k">float</span> scale = <span class="n">1.0f</span> / (<span class="n">1.0f</span> + lum); <span class="c">// x/(1+x): bounded, never clips</span>
+  <span class="k">return</span> c * scale;
+}</pre></div>
+
+  <p>The exposure of 1.4 was tuned manually to lift the midtones enough to 
+  reveal faint outer filaments without blowing out the dense central regions.</p>
+
+  <div class="screenshot">
+  <img src="render3.png" alt="After Reinhard tone mapping">
+    <div class="screenshot-caption">fig 03 — after Reinhard tone mapping with exposure 1.4. Dense 
+    filaments no longer clip to white; the outer structure becomes visible.</div>
+  </div>
+</article>
+
+    <!-- 6 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 6</span>
+  <div class="tag-row"><span class="entry-tag">Colour Model</span><span class="entry-tag blue">SII 6716/6731</span></div>
+  <h2>Colour Model Revision and Electron Density Diagnostic</h2>
+
+  <p>In this phase we made two changes to the colour model. First, the colour 
+  palette and blend factors were revised: the previous render was dominated 
+  by white and grey-blue tones because the blend weights were too weak to 
+  push the colour away from the default H&alpha; proxy. Strengthening the 
+  NII/H&alpha; and SII/H&alpha; blend factors brought out the red and violet 
+  tones visible.</p>
+
+  <p>Second, the SII&nbsp;6716/6731 grid was connected to the colour model. 
+  It encodes the <strong>electron density</strong> of the gas: a high ratio 
+  (~1.4) indicates rarefied gas at ~100&nbsp;cm⁻³; a low ratio (~0.4) 
+  indicates dense gas at ~10,000&nbsp;cm⁻³. This ratio has no spectral colour 
+  of its own — it is a diagnostic, not an emission line. We use it to 
+  <strong>modulate saturation</strong>: dense filaments are gently 
+  desaturated; rarefied regions keep their full colour. The guard condition 
+  on <code>sii_sii &gt; 0.05</code> excludes voxels without a measurement, 
+  which carry zero and would otherwise read as maximally dense gas.</p>
+
+<div class="code-block"><pre><span class="k">if</span> (density > <span class="n">0.f</span> && sii_sii > <span class="n">0.05f</span>) {
+  <span class="k">float</span> t_dense = std::clamp((<span class="n">1.f</span> - sii_sii) * <span class="n">0.5f</span>, <span class="n">0.f</span>, <span class="n">1.f</span>);
+  baseColor *= (<span class="n">1.f</span> - t_dense * <span class="n">0.5f</span>);
+}</pre></div>
+
+  <div class="screenshot">
+  <img src="render4.png" alt="With SII 6716/6731 electron density">
+    <div class="screenshot-caption">fig 04 — revised colour palette and SII&nbsp;6716/6731 electron 
+    density diagnostic. The shift from grey-blue to red and violet reflects 
+    both the stronger blend weights and the saturation modulation from the 
+    density diagnostic.</div>
+  </div>
+</article>
+
+    <!-- 7 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 7</span>
+  <div class="tag-row"><span class="entry-tag">Colour Model</span><span class="entry-tag violet">Doppler Velocity</span></div>
+  <h2>Radial Velocity as a Colour Signal</h2>
+
+  <p>At this stage, we introduced the fifth grid from Martin et al.: the <strong>radial velocity</strong>, the same quantity used to reconstruct the 3D structure. At render time, it becomes an additional chromatic cue: the colour model reproduces the Doppler shift that physically reddens or bluens emission lines in individual filaments</p>
+
+  <p>In the normalised velocity grid, 0.5 corresponds to gas at rest. Values above 0.5 indicate gas receding from us (redshift); below 0.5, approaching gas (blueshift).</p>
+
+<div class="code-block"><pre><span class="c">// vel=0.0 means no measurement — guard with both conditions</span>
+<span class="k">if</span> (density > <span class="n">0.f</span> && vel > <span class="n">0.f</span>) {
+  <span class="k">float</span> doppler  = (vel - <span class="n">0.5f</span>) * <span class="n">2.f</span>;
+  <span class="k">float</span> strength = <span class="n">0.12f</span>;
+  baseColor.x += doppler * strength;  <span class="c">// R rises with redshift</span>
+  baseColor.z -= doppler * strength;  <span class="c">// B rises with blueshift</span>
+  baseColor.x = std::clamp(baseColor.x, <span class="n">0.f</span>, <span class="n">1.f</span>);
+  baseColor.z = std::clamp(baseColor.z, <span class="n">0.f</span>, <span class="n">1.f</span>);
+}</pre></div>
+
+  <p>As visible in the render below, the blue shift across the outer shell is clearly perceptible. The 
+  strength was reduced to 0.12 in a later phase to ensure ionisation state and shock 
+  structure remain the dominant chromatic signals, with kinematics as a 
+  secondary modulation.</p>
+
+  <div class="screenshot">
+    <img src="render5.png" alt="Doppler colour shift applied">
+    <div class="screenshot-caption">fig 05 — radial velocity Doppler shift applied.</div>
+  </div>
+</article>
+
+    <!-- 8 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 8</span>
+  <div class="tag-row"><span class="entry-tag blue">256³</span><span class="entry-tag blue">Resolution</span></div>
+  <h2>Stepping Up to 256³</h2>
+
+  <p>With the full colour model working at 128³, we re-ran the voxelisation 
+  at double the resolution per axis. The 
+  416,573 input points now populate a much denser grid, producing 
+  finer and more continuous filaments.</p>
+
+  <div class="callout teal">
+    <p>Increasing the resolution initally made the render significantly darker. At 
+    128³, each occupied voxel accumulated the mean of several input points, 
+    producing relatively high density values. At 256³, the same points are 
+    spread across eight times as many voxels, so the average density per 
+    voxel drops — and with it, the accumulated radiance along each ray. The 
+    rendering parameters <code>sigma_t</code> and emissivity had to be changed to recover a comparable brightness, since they are not physical 
+    absolutes but depend on the voxel density distribution of the specific 
+    grid.</p>
+  </div>
+
+  <div class="screenshot">
+<img src="render6.png" alt="256³ render with retuned parameters">
+    <div class="screenshot-caption">fig 06 — 256³ voxelisation after parameter retuning. Filaments 
+    are thinner and more continuous; the honeycomb structure is clearer at 
+    the edges.</div>
+  </div>
+
+  <p>Memory and render time both increased proportionally, but at 256³ the six grids fit comfortably
+     in RAM and per-frame render time at 800×800 with OpenMP remained tractable.</p>
+</article>
+
+<!-- 9 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 9</span>
+  <div class="tag-row"><span class="entry-tag violet">512³</span><span class="entry-tag">Colour Revision</span></div>
+  <h2>512³ and Revising the Colour Palette</h2>
+
+  <p>Since the rendering times were manageable at 256³, we proceeded to 512³. At this density, the 416,573 
+  points fill 216,433 occupied voxels — about 1.9 points per occupied voxel on average.</p>
+
+  <p>At this stage we also revised the colour palette, tuning the NII/H&alpha; 
+  and SII/H&alpha; scale factors and the three reference colours to better 
+  match the physical regimes and move closer to the appearance of the HST 
+  reference. This was an intermediate revision as the colour logic was not yet the 
+  final one, but it produced noticeably richer colour separation than previous 
+  versions.</p>
+
+  <div class="screenshot">
+    <img src="render7.png" alt="512³ render with revised colour palette">
+    <div class="screenshot-caption">fig 07 — 512³ grid with intermediate colour revision.</div>
+  </div>
+</article>
+
+    <!-- 10 -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Phase 10</span>
+      <div class="tag-row"><span class="entry-tag orange">Orientation Fix</span><span class="entry-tag blue">Coordinates</span></div>
+      <h2>The Nebula Was Flipped</h2>
+
+      <p>The next step was correcting one important error we had noticed for a while now: the nebula was spatially mirrored. The orientation of the filamentary structure did not match the reference. This was a small error occuring during the ray marching process.</p>
+
+    <div class="screenshot">
+      <img src="render8.png" alt="Mirrored orientation">
+      <div class="screenshot-caption">fig 08 — correct orientation matching Hubble reference.</div>
+    </div>
+    </article>
+
+    <!-- 11 -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Phase 11</span>
+      <div class="tag-row"><span class="entry-tag">Stars</span><span class="entry-tag blue">Gaia DR3</span><span class="entry-tag blue">ICRS</span></div>
+      <h2>Background Stars from Gaia DR3</h2>
+
+      <p>The nebula was looking better and better each phase, but something was missing: the <strong>stars</strong>. Adding real background stars provides spatial context and embeds the image in an actual sky. We queried the Gaia DR3 catalogue for all stars with magnitude below 7, obtaining21,329 stars across the full celestial sphere.</p>
+
+      <p>The challenging part was the coordinate system. Gaia gives positions in the International Celestial Reference System (ICRS), in spherical coordinates (right ascension α, declination δ). Our world space has its own axes: camera faces −Z at frame 0, Y is world up. These needed a rotation matrix constructed once at load time, anchored on the Crab's known ICRS position (α = 83.63°, δ = 22.01°).</p>
+
+      <div class="code-block"><pre><span class="c">// Crab's ICRS direction becomes -Z in world space</span>
+<span class="k">vec3</span> crabICRS = { cos(dec)*cos(ra), cos(dec)*sin(ra), sin(dec) };
+<span class="k">vec3</span> camZ = { -crabICRS.x, -crabICRS.y, -crabICRS.z };
+
+<span class="c">// build orthonormal frame using celestial north as reference "up"</span>
+<span class="k">vec3</span> camX = cross(northPole, camZ).nor();
+<span class="k">vec3</span> camY = cross(camZ, camX).nor();</pre></div>
+
+<div class="screenshot">
+  <img src="render9.png" alt="Nebula with Gaia DR3 background stars">
+  <div class="screenshot-caption">fig 09 — nebula with Gaia DR3 background stars. Stars attenuated by the volume's transmittance T. At this stage all stars rendered white.</div>
+</div>
+    </article>
+
+    <!-- 12 -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Phase 12</span>
+      <div class="tag-row"><span class="entry-tag violet">Orbit Camera</span><span class="entry-tag blue">Animation</span></div>
+      <h2>The Orbital Camera — and Seeing the Other Side</h2>
+
+      <p>With a stable single-frame pipeline, it was time to animate the scene. We built an orbit camera that circles the nebula at a fixed radius of 80 world units, constructing the camera-to-world matrix each frame from the current orbital angle.</p>
+
+      <div class="code-block"><pre><span class="k">float</span> angle = <span class="n">2.f</span> * M_PI * frame / numFrames;
+Matrix cameraToWorld = buildOrbitCamera(angle, <span class="n">80.f</span>);
+<span class="c">// right = cross(forward, worldUp), up = cross(right, forward)</span>
+<span class="c">// camZ = -forward (ray marcher shoots toward -Z local)</span></pre></div>
+
+      <p>The first thing we rendered once the orbit worked was a frame from directly opposite — angle = π, the camera on the far side of the nebula. Filaments that appear foreground from the front view are now behind the main emission body, while the structures that were previously hidden are now exposed. The view from the far side looked meaningfully different, which confirmed that the 3D structure is geometrically coherent in all directions and not just a flat shell that happens to look good from one angle.</p>
+
+<div class="screenshot">
+  <img src="render10.png" alt="Crab from opposite orbital position">
+  <div class="screenshot-caption">fig 10 — the Crab from the opposite orbital position.</div>
+</div>
+    </article>
+
+    <!-- 13 -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Phase 13</span>
+      <div class="tag-row"><span class="entry-tag violet">NanoVDB</span><span class="entry-tag blue">Sparse Rendering</span></div>
+      <h2>Switching to NanoVDB</h2>
+
+      <p>The next step was optimizing the rendering pipeline. The uniform-grid renderer allocates the full 512³ array regardless of occupancy — roughly 512 MB per grid, times five grids. At the same time, because of the Crab's sparse filamentary structure, the overwhelming majority of that memory holds zeros. The solution is NanoVDB, which addresses this with a hierarchical sparse tree that allocates memory only for non-empty active voxels, discarding empty space at the leaf level.</p>
+
+<p> Therefore, we converted the five grids using <code>nanovdb::tools::createNanoGrid</code> and saved them as separate <code>.nvdb</code> files. The ray march logic is identical, but sampling changes in two ways: the manual trilinear lookup is replaced by <code>SampleFromVoxels</code> operating directly on the sparse tree, and the ray is clipped against the index-space bounding box before marching begins — steps outside the active region are skipped entirely.</p>
+      
+<div class="code-block"><pre><span class="c">// convert ray to index space, clip against active bbox</span>
+nanovdb::math::Ray&lt;<span class="k">float</span>&gt; idxRay = nvRay.worldToIndexF(*densityGrid);
+<span class="k">float</span> t0 = idxRay.t0();
+<span class="k">float</span> t1 = idxRay.t1();
+<span class="k">if</span> (!idxRay.intersects(densityGrid-&gt;indexBBox(), t0, t1))
+  <span class="k">return</span>; <span class="c">// ray misses all active voxels entirely</span></pre></div>
+
+<div class="screenshot">
+  <img src="render11.png" alt="NanoVDB sparse renderer">
+  <div class="screenshot-caption">fig 11 — NanoVDB sparse renderer.</div>
+</div>
+
+<p>The render looks broadly similar to the previous version, but the memory usage was now proportional to the number of occupied voxels rather than the full grid size. The five grids together take around 150 MB, 17 times less than the uniform grid. Render times are also 6 times faster, since rays that would previously march through empty space are now skipped entirely.</p>
+    </article>
+
+    <!-- 14 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 14</span>
+  <div class="tag-row"><span class="entry-tag">Star Colours</span><span class="entry-tag violet">Ballesteros · Helland</span></div>
+  <h2>Giving the Stars Their Real Colours</h2>
+
+  <p>With the initial implementation, we were rendering every star white. However, the Gaia catalogue also includes a <code>bp_rp</code> colour index encoding the star's effective surface temperature. Therefore we decided to add the physically derived colours to the stars. The conversion is sequential: the Ballesteros (2012) relation maps <code>bp_rp</code> to temperature, then Helland's empirical blackbody approximation maps temperature to RGB.</p>
+
+  <div class="code-block"><pre><span class="c">// Ballesteros (2012): bp_rp → effective temperature</span>
+T = <span class="n">4600.f</span> * (<span class="n">1.f</span>/(<span class="n">0.92f</span>*bprp + <span class="n">1.7f</span>) + <span class="n">1.f</span>/(<span class="n">0.92f</span>*bprp + <span class="n">0.62f</span>));
+T = clamp(T, <span class="n">1000.f</span>, <span class="n">40000.f</span>);
+
+<span class="c">// Helland: T → RGB (piecewise above/below 6600K)</span>
+r = (T <= <span class="n">6600.f</span>) ? <span class="n">1.f</span> : clamp(<span class="n">329.7f</span> * pow(t-<span class="n">60.f</span>, -<span class="n">0.133f</span>) / <span class="n">255.f</span>, <span class="n">0.f</span>, <span class="n">1.f</span>);</pre></div>
+
+  <p>Hot B-type stars appear blue-white; cool K-type stars appear orange-red. Stars without a <code>bp_rp</code> measurement default to white.</p>
+
+  <div class="screenshot">
+    <img src="render12.png" alt="Gaia stars with physically derived colours">
+    <div class="screenshot-caption">fig 12 — Gaia stars with physically derived colours.</div>
+  </div>
+</article>
+
+<!-- 15 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 15</span>
+  <div class="tag-row"><span class="entry-tag blue">Voxelisation</span><span class="entry-tag violet">Data Fidelity</span><span class="entry-tag">Colour Model</span></div>
+  <h2>Cleaning the Voxelisation Pipeline</h2>
+
+  <p>At this stage we identified two issues in the voxelisation pipeline 
+  that were silently distorting the data before it reached the renderer.</p>
+
+ <p>The first was the <strong>velocity normalisation</strong>. The previous 
+implementation mapped the full velocity range linearly to [0,1]. Since the 
+Doppler colour model treats 0.5 as the rest velocity, gas that is physically 
+at rest was being assigned the wrong colour — shifted toward red or blue 
+depending on the asymmetry of the dataset. The fix normalises symmetrically 
+around zero, so 0.5 always corresponds to rest:</p>
+
+  <div class="code-block"><pre><span class="c"># rest velocity always maps to 0.5</span>
+abs_max = max(abs(v_min), abs(v_max))
+grid[mask] = (grid[mask] / (abs_max + <span class="n">1e-9</span>)) * <span class="n">0.5</span> + <span class="n">0.5</span></pre></div>
+
+  <p>The second was the absence of <strong>percentile clipping</strong>. 
+  Anomalous peaks in the raw data dominated the normalisation maximum, 
+  compressing the rest of the distribution into the lower half of [0,1] — 
+  NII/H&alpha; and SII/H&alpha; reached only around 0.53 and 0.55. After 
+  clipping at the 99.5th percentile, both grids reach around 0.93–0.94, 
+  spreading across nearly the full range:</p>
+
+  <div class="code-block"><pre><span class="c"># removes outliers before scatter average</span>
+vmax = np.percentile(val[val > <span class="n">0</span>], <span class="n">99.5</span>)
+val  = np.clip(val, <span class="n">0</span>, vmax)</pre></div>
+
+  <p> The render may look broadly similar to the previous version; that's because the old colour function 
+  had been quietly absorbing the pipeline errors all along. With clean data coming in, we corrected <code>nebulaColor</code> to map 
+  the physical quantities directly with no implicit corrections.</p>
+
+  <div class="screenshot">
+    <img src="render13.png" alt="Render after pipeline correction">
+    <div class="screenshot-caption">fig 13 — after voxelisation pipeline correction. Colour now 
+    maps clean data directly.</div>
+  </div>
+
+</article>
+
+<!-- 16 -->
+<article class="entry" data-entry>
+  <span class="entry-date">Phase 16</span>
+  <div class="tag-row">
+    <span class="entry-tag violet">Synchrotron</span>
+    <span class="entry-tag blue">PWN</span>
+    <span class="entry-tag">Mesh Voxelisation</span>
+  </div>
+  <h2>Adding the Pulsar Wind Nebula</h2>
+
+  <p>Until now, the nebula's render was incomplete. The Crab's second component — the diffuse teal-blue glow of the <strong>pulsar wind nebula (PWN)</strong>, produced by synchrotron radiation — has no Doppler signature and therefore no 3D reconstruction from IFU data. The SITELLE data we started from only captured the thermal filaments. To address this, we used a NASA triangle mesh derived from Chandra X-ray observations.</p>
+
+  <p>The mesh was first rotated to align the pulsar jet axis with the geometry reported in the literature (PA = 124°, inclination = 27°) via Rodrigues' formula. Three million surface points were then sampled and scattered onto the 512³ grid. Because the mesh encodes only the outer shell, Perlin noise was injected into the interior to produce organic sub-structure, followed by Gaussian smoothing and a log stretch.</p>
+
+  <div class="code-block"><pre><span class="c"># inject 4-octave Perlin noise inside the surface mask</span>
+grid_noisy[mask] = grid[mask] * (<span class="n">0.6</span> + <span class="n">0.4</span> * noise_vol[mask])
+grid_final = gaussian_filter(grid_noisy, sigma=<span class="n">1.2</span>)
+grid_final = log_stretch(norm01(grid_final), factor=<span class="n">4.0</span>)</pre></div>
+
+  <p>At render time the synchrotron grid is sampled alongside the thermal grids and composited additively with a fixed teal-blue colour and low emissivity weight, keeping it subordinate to the filaments while clearly distinct.</p>
+
+<div class="screenshot">
+  <img src="render14.png" alt="Synchrotron PWN added">
+  <div class="screenshot-caption">fig 14 — synchrotron PWN enabled. The teal-blue central glow is the PWN; the surrounding network is the thermal ejecta.</div>
+</div>
+
+  <div class="callout teal">
+    <p><strong>Note:</strong> the internal density variation of the PWN is entirely procedural. Synchrotron continuum has no discrete emission lines, so no morpho-kinematic reconstruction analogous to Martin et al. exists for this component.</p>
+  </div>
+</article>
+
+    <!-- 17  -->
+    <article class="entry" data-entry>
+      <span class="entry-date">Final Result</span>
+      <div class="tag-row"><span class="entry-tag violet">120 Frames</span><span class="entry-tag blue">Full Orbit</span></div>
+      <h2>120 Frames, One Full Orbit</h2>
+
+      <p>Finally, with every component in place, we ran the full 120-frame orbital animation. One complete revolution at 100 world units distance, frames saved as sequentially numbered PPMs and assembled with ffmpeg.</p>
+
+      <p>The orbital motion really highlights the depth of the nebula as we can clearly see both foreground and background filaments and their different colors. </p>
+
+<div class="screenshot">
+  <img src="gif_full.gif" alt="120-frame orbital animation">
+  <div class="screenshot-caption">fig 13 — selected frames from the 120-frame orbital animation. Parallax between foreground and background filaments makes the 3D structure of the Crab Nebula directly perceptible as a continuous motion cue.</div>
+</div>
+
+      <div class="metrics">
+        <div class="metric"><span class="val">120</span><span class="lbl">frames rendered</span></div>
+        <div class="metric"><span class="val">512³</span><span class="lbl">final resolution</span></div>
+        <div class="metric"><span class="val">5</span><span class="lbl">spectral channels</span></div>
+        <div class="metric"><span class="val">21,329</span><span class="lbl">Gaia stars</span></div>
+      </div>
+
+<p>We are really happy with the final result. This project was not easy — we had to iterate many times, fine-tune parameters, and understand the physics deeply enough to make the right decisions for the purpose of the project. It may not look as good as a nebula from the VFX industry, but it still looks amazing to us, and more importantly, it is based on real data.</p>    </article>
+
+  </div><!-- /timeline -->
+
+  <footer>
+    <p>
+      Giorgia Savo &nbsp;·&nbsp; Francesco Filippo Stefanutti<br>
+      DH2323 Computer Graphics &nbsp;·&nbsp; KTH Royal Institute of Technology &nbsp;·&nbsp; 2025<br><br>
+      Data: <a href="#">Martin et al. 2021 — SITELLE / CFHT</a> &nbsp;·&nbsp;
+      Stars: <a href="#">Gaia DR3 — ESA</a> &nbsp;·&nbsp;
+      Volume rendering: <a href="https://www.scratchapixel.com">Scratchapixel</a>
+    </p>
+  </footer>
+
+</div><!-- /wrapper -->
+
+<script>
+(function() {
+  const sf = document.getElementById('starfield');
+  for (let i = 0; i < 220; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    const sz = Math.random() < 0.85 ? Math.random()*1.5+0.5 : Math.random()*2.5+1.5;
+    s.style.cssText = `width:${sz}px;height:${sz}px;left:${Math.random()*100}%;top:${Math.random()*100}%;--o:${(Math.random()*0.5+0.2).toFixed(2)};--d:${(Math.random()*4+2).toFixed(1)}s;animation-delay:${(Math.random()*4).toFixed(1)}s`;
+    sf.appendChild(s);
+  }
+})();
+
+const obs = new IntersectionObserver(list => {
+  list.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
+}, { threshold: 0.06 });
+document.querySelectorAll('[data-entry]').forEach(e => obs.observe(e));
+
+const btn = document.getElementById('backTop');
+window.addEventListener('scroll', () => btn.classList.toggle('show', window.scrollY > 400));
+</script>
+</body>
+</html>
