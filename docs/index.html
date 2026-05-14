@@ -234,7 +234,7 @@ footer a:hover { color: var(--star-white); }
     <div class="header-meta">
       <span>Giorgia Savo</span>
       <span>Francesco Filippo Stefanutti</span>
-      <span>Spring 2025</span>
+      <span>Spring 2026</span>
     </div>
     <p class="subtitle">A development log of building a physically-based volumetric renderer from scratch — from research and data hunting to a 120-frame orbital animation, one iteration at a time.</p>
   </header>
@@ -252,7 +252,7 @@ footer a:hover { color: var(--star-white); }
       <p>We slowly started learning about two main pipelines. The first is the visual effects and cinematic science one, which usually starts from a manually modelled mesh or simulations, then voxelises them into a density grid and finally injects procedural noise at render time to recover fine structure. The results are visually stunning, but the geometry does not come from real data. On the astronomy side, tools like DS9 and CARTA can load real spectroscopic datacubes and render them volumetrically, but they use simple ray casting with no absorption, no transmittance, no actual light transport.</em>.</p>
 
       <div class="callout teal">
-        <p><strong>The gap we decided to occupy:</strong> take real observational data --measured geometry, kinematics, line ratios — and pass it directly to a physically-based ray marcher.</p>
+        <p><strong>The gap we decided to occupy:</strong> take real observational data — measured geometry, kinematics, line ratios — and pass it directly to a physically-based ray marcher.</p>
       </div>
 
       <p>The rendering technique was clear from the start: <strong>volume ray marching</strong>; for that, we followed the discrete solution to the Radiative Transfer Equation as documented by Scratchapixel. We followed its tutorial carefully — transmittance accumulation, Beer-Lambert law, stochastic jitter — before touching any nebula-specific data.</p>
@@ -704,7 +704,7 @@ grid_final = log_stretch(norm01(grid_final), factor=<span class="n">4.0</span>)<
   <footer>
     <p>
       Giorgia Savo &nbsp;·&nbsp; Francesco Filippo Stefanutti<br>
-      DH2323 Computer Graphics &nbsp;·&nbsp; KTH Royal Institute of Technology &nbsp;·&nbsp; 2025<br><br>
+      DH2323 Computer Graphics &nbsp;·&nbsp; KTH Royal Institute of Technology &nbsp;·&nbsp; 2026<br><br>
       Data: <a href="#">Martin et al. 2021 — SITELLE / CFHT</a> &nbsp;·&nbsp;
       Stars: <a href="#">Gaia DR3 — ESA</a> &nbsp;·&nbsp;
       Volume rendering: <a href="https://www.scratchapixel.com">Scratchapixel</a>
