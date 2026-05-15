@@ -4,7 +4,7 @@
 //
 // Compile (macOS, g++-15 + OpenMP):
 //   g++-15 -fopenmp -std=c++17 step2_main_bin.cpp -o step2_main_bin
-/* g++-15 -fopenmp -std=c++17 \
+/* g++-15 -fopenmp -std=c++17 -O3 -march=native \
 -isysroot "$(xcrun --show-sdk-path)" \
 -I/opt/homebrew/Cellar/openvdb/13.0.0_1/include \
 step2_main_bin.cpp -o step2_main_bin
@@ -58,7 +58,7 @@ static void integrate(const Ray& ray, float tMin, float tMax,
                       std::default_random_engine& rng,
                       std::uniform_real_distribution<float>& dist)
 {
-    const float stepSize  = 0.04f;
+    const float stepSize  = 0.117f;
     const float sigma_t   = 0.1f;  // extinction = absorption (scattering negligible)
     const float emissivity = 5.5f;
     const vec3  synchColor{0.15f, 0.55f, 0.85f}; // PWN blue
@@ -91,9 +91,9 @@ static void integrate(const Ray& ray, float tMin, float tMax,
         vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, dens, vel);
         L += emColor * dens * emissivity * T * stride;
 
-        // Synchrotron (PWN) contribution
+        // Synchrotron (PWN) integration
         if (syn > 0.02f)
-             L += synchColor * syn * emissivity * 0.04f * T * stride;
+             L += synchColor * syn * emissivity * 0.08f * T * stride;
     }
 }
 

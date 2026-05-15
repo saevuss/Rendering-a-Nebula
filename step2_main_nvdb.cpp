@@ -103,19 +103,20 @@ static void integrate(const Ray& ray,
             const float sii_sii = siiSiiSampler(idxPos);
             const float vel     = velSampler   (idxPos);
 
+            
             vec3 emColor = nebulaColor(nii_ha, sii_ha, sii_sii, dens, vel);
-
+            // Transmittance update (Beer-Lambert)
             T *= exp(-dens * worldStride * sigma_t);
             if (T < 1e-4f) return;
 
             L += emColor * dens * emissivity * T * worldStride;
         }
 
-        // Synchrotron (PWN) — sampled even in low-density voxels
+        // Synchrotron (PWN) integration
         float syn = synSampler(idxPos);
         syn = pow(syn, 1.5f);
-        // if (syn > 0.02f)
-        //     L += synchColor * syn * emissivity * 0.08f * T * worldStride;
+        if (syn > 0.02f)
+            L += synchColor * syn * emissivity * 0.08f * T * worldStride;
     }
 }
 

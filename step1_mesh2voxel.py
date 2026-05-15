@@ -43,6 +43,15 @@ def build_synchrotron_volume(mesh, resolution):
 
     grid = np.zeros((resolution,) * 3, dtype=np.float32)
     np.add.at(grid, (idx[:,2], idx[:,1], idx[:,0]), 1.0)
+    counts = grid.copy()
+    occupied = counts > 0
+    print(f"  [synchrotron]")
+    print(f"    total points:           {len(pts)}")
+    print(f"    occupied voxels:        {occupied.sum()} / {resolution**3}")
+    print(f"    points/voxel (average): {counts[occupied].mean():.2f}")
+    print(f"    points/voxel (max):     {int(counts[occupied].max())}")
+    print()
+    
     grid = gaussian_filter(grid, sigma=3.0)
 
     mask = grid > grid.max() * 0.04

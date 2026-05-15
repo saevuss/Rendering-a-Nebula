@@ -1,7 +1,20 @@
 # Crab Nebula Volumetric Renderer
+
+<p align="center">
+  <img src="results/cover.png" width="100%">
+</p>
+
 Physically-based volumetric rendering of the Crab Nebula from real astronomical data.
 This project implements a custom volumetric renderer capable of reconstructing and rendering the Crab Nebula directly from observational spectroscopic datasets using ray marching and physically-based emission models.
 Developed for the course **DH2323 — Computer Graphics** at KTH Royal Institute of Technology.
+
+Supervisor: [Prof. Christopher Peters](https://www.kth.se/profile/chpeters)
+
+🎬 [Video Demo](https://youtube.com/shorts/1jNjHx2hvk4?si=potkSXFZnSne_sRU)<br>
+
+📄 [Full Report](documentation/Project_Report_SAVO_STEFANUTTI.pdf)<br>
+
+📝 [Dev Blog](https://saevuss.github.io/Rendering-a-Nebula/)
 
 ---
 
@@ -271,19 +284,18 @@ Frames (PPM) and the animated GIF are saved in `nebula_bin/` or `nebula_nvdb/` r
 - SITELLE spectroscopic reconstruction of the Crab Nebula (Martin et al. 2021)
 - Gaia DR3 star catalogue
 - NASA/Chandra Crab Nebula 3D mesh
-
----
-
-## Documentation
  
-| Document | Link |
-|---|---|
-| Initial Project Specification | [project_specification](documentation/Project_specification_SAVO_STEFANUTTI.pdf) |
-| Final Project Report | [project_report](documentation/Project_Report_SAVO_STEFANUTTI.pdf) |
- 
-
 ---
 
 ## Authors
 - Giorgia Savo
 - Francesco Filippo Stefanutti
+
+## Citation
+
+If you use this work, please cite it as:
+```
+Savo G., Stefanutti F.F., Physically-Based Volumetric Rendering of Astronomical Nebulae (2026).
+C++/Python. KTH Royal Institute of Technology.
+Available: https://github.com/saevuss/Rendering-a-Nebula
+```

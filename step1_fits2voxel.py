@@ -11,6 +11,7 @@ FILES = [
     "fits/3dmap_XYZvel.fits",
 ]
 
+
 def compute_shared_bounds(fits_paths):
     xyz_min = np.full(3,  np.inf, dtype=np.float32)
     xyz_max = np.full(3, -np.inf, dtype=np.float32)
@@ -28,20 +29,29 @@ def compute_shared_bounds(fits_paths):
     print(f"  center={center}  scale={scale:.4f}")
     return center, scale
 
-def _scatter_average(idx, val, resolution):
+def _scatter_average(idx, val, resolution, name=""):
     """Scatter-add + average of overlapping voxels (better explained in the report)"""
     grid   = np.zeros((resolution,) * 3, dtype=np.float32)
     counts = np.zeros_like(grid)
     np.add.at(grid,   (idx[:,2], idx[:,1], idx[:,0]), val)
     np.add.at(counts, (idx[:,2], idx[:,1], idx[:,0]), 1)
+
+    #statistics
+    occupied = counts > 0
+    print(f" Grid {name}")
+    print(f"  total points:        {len(val)}")
+    print(f"  occupied voxels:      {occupied.sum()} / {resolution**3}")
+    print(f"  points/voxel (average): {counts[occupied].mean():.2f}")
+    print(f"  points/voxel (max):   {int(counts[occupied].max())}\n")
+
     mask = counts > 0
     grid[mask] /= counts[mask]
     return grid
 
 def _xyz_to_idx(xyz, center, scale, resolution):
     """ from coordinate to index """
-    xyz_norm = (xyz - center) / scale
-    idx = ((xyz_norm + 1.0) / 2.0 * (resolution - 1)).astype(int)
+    xyz_norm = (xyz - center) / scale #isotropic normalization
+    idx = ((xyz_norm + 1.0) / 2.0 * (resolution - 1)).astype(int) #index mapping
     return np.clip(idx, 0, resolution - 1)
 
 def voxelize(fits_path, resolution, center, scale, percentile_clip=99.5):
@@ -52,10 +62,10 @@ def voxelize(fits_path, resolution, center, scale, percentile_clip=99.5):
 
     vmax = np.percentile(val[val > 0], percentile_clip)
     val  = np.clip(val, 0, vmax)
-
-    idx  = _xyz_to_idx(xyz, center, scale, resolution)
-    grid = _scatter_average(idx, val, resolution)
-    grid = log_stretch_natural(grid)
+    name = os.path.basename(fits_path)
+    idx  = _xyz_to_idx(xyz, center, scale, resolution) #isotropic normalization and index mapping
+    grid = _scatter_average(idx, val, resolution, name=name) #scatter and average
+    grid = log_stretch_natural(grid) #dynamic range compression 
     grid = np.ascontiguousarray(grid.transpose(2, 1, 0))  # ZYX → XYZ
     return grid.astype('<f4')
 
@@ -67,8 +77,8 @@ def voxelize_vel(fits_path, resolution, center, scale):
 
     idx = _xyz_to_idx(xyz, center, scale, resolution)
     #idx[:, 0] = (resolution - 1) - idx[:, 0]   # flip RA
-
-    grid = _scatter_average(idx, val, resolution)
+    name = os.path.basename(fits_path)
+    grid = _scatter_average(idx, val, resolution, name=name)
 
     mask = grid != 0
     v_min = grid[mask].min()
