@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+title: "Physically-Based Volumetric Rendering of Astronomical Nebulae"
+authors:
+  - family-names: "Savo"
+    given-names: "Giorgia"
+  - family-names: "Stefanutti"
+    given-names: "Francesco Filippo"
+date-released: 2026-05-15
+url: "https://github.com/saevuss/Rendering-a-Nebula"
+repository-code: "https://github.com/saevuss/Rendering-a-Nebula"
+license: MIT
+type: software
+preferred-citation:
+  type: report
+  title: "Physically-Based Volumetric Rendering of Astronomical Nebulae"
+  authors:
+    - family-names: "Savo"
+      given-names: "Giorgia"
+    - family-names: "Stefanutti"
+      given-names: "Francesco Filippo"
+  institution:
+    name: "KTH Royal Institute of Technology"
+  date-released: 2026-05-15
+  url: "https://github.com/saevuss/Rendering-a-Nebula"
